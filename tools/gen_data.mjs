@@ -131,15 +131,17 @@ for (const m of arrayBody(read("src/pokemon.c"), "gNatureStatTable[NUM_NATURES]"
   NATURE_STAT_TABLE[m[1]] = m[2].split(",").map((x) => parseInt(x.trim(), 10));
 if (Object.keys(NATURE_STAT_TABLE).length !== 25) throw new Error("nature table");
 
-// ── Speed at Level 50 ──
+// ── Speed at Level 50 and Level 100 ──
+// Open Level enemies take the player's highest party level, minimum 60
+// (GetFrontierEnemyMonLevel, src/battle_tower.c:3247); the site's Level 100
+// mode is Open Level with a level-100 team, as on the other Frontier sites.
 // CALC_STAT (src/pokemon.c:2814): ((2*base + iv + ev/4) * level)/100 + 5, then
 // ModifyStatByNature (src/pokemon.c:5864): *110/100 or *90/100, integer division.
 // Speed is nature column 2 (gNatureStatTable is Atk, Def, Speed, SpAtk, SpDef).
-const LEVEL = 50;
-function speedStat(species, iv, ev, nature) {
+function speedStat(species, iv, ev, nature, level) {
   const base = BASE_SPEED[species];
   if (base == null) throw new Error(`no baseSpeed for ${species}`);
-  let n = Math.floor(((2 * base + iv + Math.floor(ev / 4)) * LEVEL) / 100) + 5;
+  let n = Math.floor(((2 * base + iv + Math.floor(ev / 4)) * level) / 100) + 5;
   const mod = NATURE_STAT_TABLE[nature][2];
   if (mod === 1) n = Math.floor((n * 110) / 100);
   else if (mod === -1) n = Math.floor((n * 90) / 100);
@@ -182,7 +184,10 @@ const MONS = monsRaw.mons.map((m, i) => {
     nature: m.nature, evSpread: m.evSpreadFlags.reduce((acc, f) => acc | (1 << EV_BIT[f]), 0),
     openOnly: m.aboveHighTier,
   };
-}).map((m) => ({ ...m, speed: speedStat(m.species, DOME_IV, spreadSpeedEv(m.evSpread), m.nature) }));
+}).map((m) => {
+  const ev = spreadSpeedEv(m.evSpread);
+  return { ...m, spe50: speedStat(m.species, DOME_IV, ev, m.nature, 50), spe100: speedStat(m.species, DOME_IV, ev, m.nature, 100) };
+});
 const monIndex = Object.fromEntries(monsRaw.mons.map((m) => [m.constant, m.index]));
 const TRAINERS = trainersRaw.trainers.map((t) => ({
   id: t.id, name: t.name, cls: t.facilityClass, pool: t.pool.map((c) => monIndex[c]),
@@ -201,7 +206,8 @@ const brainMons = [...domeBrainText.matchAll(/\{\s*\.species\s*=\s*(SPECIES_\w+)
     const evs = m[5].split(",").map((x) => +x.trim());
     const moves = m[6].split(",").map((x) => x.trim());
     for (const mv of moves) if (!MOVES[mv]) throw new Error(`unknown brain move ${mv}`);
-    return { species: m[1], item: m[2], iv, nature: m[4], evs, moves, speed: speedStat(m[1], iv, evs[3], m[4]) };
+    return { species: m[1], item: m[2], iv, nature: m[4], evs, moves,
+      spe50: speedStat(m[1], iv, evs[3], m[4], 50), spe100: speedStat(m[1], iv, evs[3], m[4], 100) };
   });
 if (brainMons.length !== 6 || !(MAX_IV === 31)) throw new Error(`dome brain mons: ${brainMons.length}`);
 const DOME_BRAIN = { silver: brainMons.slice(0, 3), gold: brainMons.slice(3) };
@@ -223,7 +229,7 @@ let out = `// ── data/dome_data.mjs ─────────────�
 //   natures:   src/pokemon.c gNatureStatTable (Atk, Def, Speed, SpAtk, SpDef)
 //   items:     src/data/items.h (names)
 //   sets/pools: ../tower_extract/frontier_mons.json, trainers.json (same commit)
-//   speed:     Level 50, IV 3 (src/battle_dome.c:2591 BUG), CALC_STAT + ModifyStatByNature (src/pokemon.c)
+//   speed:     Level 50 and 100, IV 3 (src/battle_dome.c:2591 BUG), CALC_STAT + ModifyStatByNature (src/pokemon.c)
 //   Tucker:    src/frontier_util.c sFrontierBrainsMons[FRONTIER_FACILITY_DOME]
 // Re-verified by tests/test_data_integrity.mjs.
 
@@ -240,11 +246,11 @@ export const TYPE_CHART = ${J(TYPE_CHART)};
 export const ITEM_NAMES = ${J(ITEM_NAMES)};
 export const SPECIES = {\n${Object.entries(SPECIES).map(([k, v]) => `  ${k}: ${J(v)},`).join("\n")}\n};
 export const MOVES = {\n${Object.entries(MOVES).map(([k, v]) => `  ${k}: ${J(v)},`).join("\n")}\n};
-// speed: Level 50 Speed stat with IV 3
+// spe50 / spe100: Speed stat at Level 50 / 100 with IV 3
 // evSpread: bit 0 HP, 1 Atk, 2 Def, 3 Speed, 4 SpAtk, 5 SpDef (include/constants/battle_frontier.h:119-124)
 export const MONS = [\n${MONS.map((m) => `  ${J(m)},`).join("\n")}\n];
 export const TRAINERS = [\n${TRAINERS.map((t) => `  ${J(t)},`).join("\n")}\n];
-// Tucker, Level 50. evs: HP, Atk, Def, Speed, SpAtk, SpDef. speed = in-battle stat.
+// Tucker. evs: HP, Atk, Def, Speed, SpAtk, SpDef. spe50 / spe100 = Speed stat at that level.
 export const DOME_BRAIN = {
   silver: [\n${DOME_BRAIN.silver.map((m) => `    ${J(m)},`).join("\n")}\n  ],
   gold: [\n${DOME_BRAIN.gold.map((m) => `    ${J(m)},`).join("\n")}\n  ],

@@ -6,7 +6,7 @@
 // Checks: no console errors; a generated tournament entered THROUGH THE UI
 // gives the same count as engine.narrow() and lists the true team's sets; the
 // "contradiction" message appears for an impossible clue; reset clears; the
-// Speed column and Tucker's Silver/Gold table match the data; no
+// Speed column and Tucker's Silver/Gold table match the data at both levels; no
 // horizontal page scroll at 375px.
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MONS, TRAINERS, SPECIES, STYLE_TEXTS, STAT_TEXTS, MOVES, DOME_BRAIN } from "../data/dome_data.mjs";
-import { narrow, battleStyle, statLine, teamMoves, canShow, opponentPick } from "../engine.mjs";
+import { narrow, battleStyle, statLine, teamMoves, canShow, opponentPick, trainerSpecies } from "../engine.mjs";
 import { mulberry32, randomTeam, LATE_TRAINERS } from "../tests/util.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -86,16 +86,36 @@ check(summary.includes(String(cas.r.teams.length)), `summary "${summary}" vs ${c
 const setNames = await page.$$eval("#breakdown .set-name", (tds) => tds.map((td) => td.textContent));
 for (const i of cas.team) check(setNames.includes(`${SPECIES[MONS[i].species].name} ${MONS[i].ord}`), `true set ${MONS[i].label} not listed`);
 check((await page.inputValue("#styleInput")).startsWith(STYLE_TEXTS[cas.clues.style]), "style text shown");
-// Speed column: every listed set shows its precomputed IV-3 Speed
-const setSpeeds = await page.$$eval("#breakdown tbody tr", (trs) => trs.map((tr) => [tr.querySelector(".set-name").textContent, tr.querySelector(".spe").textContent]));
-const speedOf = Object.fromEntries(MONS.map((m) => [`${SPECIES[m.species].name} ${m.ord}`, String(m.speed)]));
-check(setSpeeds.length > 0 && setSpeeds.every(([n, v]) => speedOf[n] === v), `speed cells ${JSON.stringify(setSpeeds.slice(0, 3))}`);
+// Speed column: every listed set shows its precomputed IV-3 Speed for the level
+const setSpeeds = () => page.$$eval("#breakdown tbody tr", (trs) => trs.map((tr) => [tr.querySelector(".set-name").textContent, tr.querySelector(".spe").textContent]));
+const speedsOk = async (key) => {
+  const got = await setSpeeds();
+  const want = Object.fromEntries(MONS.map((m) => [`${SPECIES[m.species].name} ${m.ord}`, String(m[key])]));
+  return got.length > 0 && got.every(([n, v]) => want[n] === v);
+};
+check(await speedsOk("spe50"), "L50 speed cells");
 // Tucker panel: Silver by default, Gold on click
 const tuckerRows = () => page.$$eval("#tuckerTable tbody tr", (trs) => trs.map((tr) => `${tr.querySelector(".set-name").textContent} ${tr.querySelector(".spe").textContent}`).join());
-const want = (k) => DOME_BRAIN[k].map((m) => `${SPECIES[m.species].name} ${m.speed}`).join();
+const want = (k, key = "spe50") => DOME_BRAIN[k].map((m) => `${SPECIES[m.species].name} ${m[key]}`).join();
 check((await tuckerRows()) === want("silver"), `tucker silver: ${await tuckerRows()}`);
 await page.click('.seg label:has(input[value="gold"])');
 check((await tuckerRows()) === want("gold"), `tucker gold: ${await tuckerRows()}`);
+// Level 100: Speeds switch, the narrowing matches engine.narrow at 100, then back
+await page.click('.level-seg label:has(input[value="100"])');
+check(await speedsOk("spe100"), "L100 speed cells");
+check((await tuckerRows()) === want("gold", "spe100"), `tucker gold L100: ${await tuckerRows()}`);
+const r100 = narrow(cas.clues, 100);
+const steps100 = await page.$$eval("#steps .step b", (bs) => bs.map((b) => +b.textContent));
+check(steps100.join() === r100.steps.map((x) => x.left).join(), `L100 steps ui ${steps100} vs engine ${r100.steps.map((x) => x.left)}`);
+// species offered for the trainer follow the level (Open adds the high-tier sets)
+const openOnly = trainerSpecies(t.id, 100).filter((x) => !trainerSpecies(t.id, 50).includes(x)).map((x) => SPECIES[x].name);
+const offered = async () => { await page.click(speciesSel(0)); await page.fill(speciesSel(0), ""); const o = await page.$$eval("#speciesCombos .combo-list.open .combo-item", (els) => els.map((x) => x.textContent)); await page.keyboard.press("Escape"); return o; };
+check(openOnly.length > 0, "case trainer has Open-only species");
+const at100 = await offered();
+await page.click('.level-seg label:has(input[value="50"])');
+const at50 = await offered();
+check(openOnly.every((n) => at100.includes(n) && !at50.includes(n)), `Open-only ${openOnly} offered at 100 only`);
+check(await speedsOk("spe50"), "back to L50 speed cells");
 if (shotsDir) await page.screenshot({ path: join(shotsDir, "desktop.png"), fullPage: true });
 
 // ── your team: paste -> "Who they bring" matches the engine ──

@@ -1,18 +1,19 @@
 /* ── styles.css — Battle Dome Assistant ───────────────────────────────────
-   Night-arena palette: indigo ground, gold accent (the Tower is steel/brass,
-   the Palace cyan, the Arena warm). Every pair that carries meaning is checked
+   Dome-floor palette: deep sea-green ground, seafoam accent (the seafoam
+   flooring inside the Battle Dome). The Tower is steel-blue, the Palace
+   orange, the Arena wood-gold. Every pair that carries meaning is checked
    by tools/check_contrast.mjs. */
 
 :root {
-  --bg: #10101c;
-  --panel: #181a2b;
-  --panel-2: #212439;
-  --line: #66709a;
-  --ink: #eceef8;
-  --ink-dim: #aeb4d0;
-  --accent: #f0b84a;
-  --accent-ink: #17120a;
-  --good: #7fd6a0; --good-bg: #16291f;
+  --bg: #0d1a17;
+  --panel: #13241f;
+  --panel-2: #1a2f29;
+  --line: #5f8d81;
+  --ink: #e9f5f1;
+  --ink-dim: #a8c7be;
+  --accent: #7fdcbc;
+  --accent-ink: #082018;
+  --good: #c9e98a; --good-bg: #232d14;
   --bad: #ff9c9c;  --bad-bg: #2d1a1f;
   --radius: 6px;
 }

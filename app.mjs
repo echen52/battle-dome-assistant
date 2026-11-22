@@ -5,7 +5,13 @@ import {
 } from "./engine.mjs";
 import { parseTeam } from "./team.mjs";
 
-const LEVEL = 50;
+// Level 50, or Level 100 = Open Level with a level-100 team (enemies take the
+// player's highest level, min 60 — GetFrontierEnemyMonLevel, battle_tower.c:3247).
+// Open adds the sets past FRONTIER_MONS_HIGH_TIER; trainers are the same.
+const LEVEL_KEY = "domeAssistant.level";
+let level = 50;
+try { if (localStorage.getItem(LEVEL_KEY) === "100") level = 100; } catch { /* storage blocked */ }
+const speedAt = (m) => String(level === 100 ? m.spe100 : m.spe50);
 // Styles a card can actually show: 0-27 minus the two the threshold order makes
 // unreachable (18 ENFEEBLE_HIGH, 24 DEF_OVER_ATK — battle_dome.c:549, 555);
 // 28-31 are past BALANCED, which always matches.
@@ -32,7 +38,7 @@ const moveName = (c) => MOVES[c]?.name ?? c;
 const setLabel = (i) => `${speciesName(MONS[i].species)} ${MONS[i].ord}`;
 const byLabel = (a, b) => a.label.localeCompare(b.label);
 
-const ALL_SPECIES = [...new Set(TRAINERS.flatMap((t) => trainerSets(t.id, LEVEL)).map((i) => MONS[i].species))];
+const allSpecies = () => [...new Set(TRAINERS.flatMap((t) => trainerSets(t.id, level)).map((i) => MONS[i].species))];
 
 // ── filtering combobox ─────────────────────────────────────────────────────
 // Same behaviour as the Arena / Palace / Tower pickers: type to narrow
@@ -140,7 +146,7 @@ function useTeamText(text, { quiet = false } = {}) {
 function compute() {
   const { trainerId, species } = state;
   if (trainerId == null || species.some((s) => !s)) return null;
-  const base = candidateTeams(trainerId, species, LEVEL);
+  const base = candidateTeams(trainerId, species, level);
   const passWins = (t, upTo = state.wins.length) => winsConsistent(t, state.wins.slice(0, upTo));
   const styleOf = new Map(base.map((t) => [t, battleStyle(t)]));
   const statOf = new Map(base.map((t) => [t, statLine(t)]));
@@ -200,7 +206,7 @@ const statCombo = combo({
 $("statCombo").append(statCombo.el);
 
 function renderPickers(res) {
-  const list = state.trainerId == null ? [] : trainerSpecies(state.trainerId, LEVEL);
+  const list = state.trainerId == null ? [] : trainerSpecies(state.trainerId, level);
   speciesCombos.forEach((c, k) => {
     const taken = state.species.filter((s, j) => j !== k && s);
     c.set(list.filter((s) => !taken.includes(s)).map((s) => ({ value: s, label: speciesName(s) })).sort(byLabel), state.species[k]);
@@ -231,7 +237,7 @@ function renderWins(res) {
       const taken = w.loserDraft.filter((x, j) => j !== k && x);
       const c = combo({
         ariaLabel: `Round ${r + 1} beaten Pokémon ${k + 1}`, placeholder: "—", value: w.loserDraft[k],
-        options: ALL_SPECIES.filter((s) => !taken.includes(s)).map((s) => ({ value: s, label: speciesName(s) })).sort(byLabel),
+        options: allSpecies().filter((s) => !taken.includes(s)).map((s) => ({ value: s, label: speciesName(s) })).sort(byLabel),
         onPick: (v) => {
           w.loserDraft[k] = v;
           w.loser = w.loserDraft.every(Boolean) ? w.loserDraft.slice() : null;
@@ -251,7 +257,7 @@ function setRow(i, teams) {
     el("td", { className: "set-name", textContent: setLabel(i) }),
     el("td", { textContent: itemName(m.item) }),
     el("td", { textContent: natureName(m.nature) }),
-    el("td", { className: "spe", textContent: String(m.speed) }),
+    el("td", { className: "spe", textContent: speedAt(m) }),
     el("td", { className: "moves", textContent: m.moves.filter((x) => x !== "MOVE_NONE").map(moveName).join(" · ") }),
     el("td", { className: "num", textContent: String(teams) }));
 }
@@ -265,10 +271,22 @@ function renderTucker() {
       el("td", { className: "set-name", textContent: speciesName(m.species) }),
       el("td", { textContent: itemName(m.item) }),
       el("td", { textContent: natureName(m.nature) }),
-      el("td", { className: "spe", textContent: String(m.speed) }),
+      el("td", { className: "spe", textContent: speedAt(m) }),
       el("td", { className: "moves", textContent: m.moves.map(moveName).join(" · ") })))));
 }
 for (const r of document.querySelectorAll('input[name="symbol"]')) r.addEventListener("change", renderTucker);
+document.querySelector(`input[name="level"][value="${level}"]`).checked = true;
+for (const r of document.querySelectorAll('input[name="level"]')) r.addEventListener("change", (e) => {
+  level = +e.target.value;
+  try { localStorage.setItem(LEVEL_KEY, String(level)); } catch { /* not kept */ }
+  // a species only Open Level allows is dropped when going back to Level 50
+  if (state.trainerId != null) {
+    const ok = trainerSpecies(state.trainerId, level);
+    state.species = state.species.map((sp) => (sp && ok.includes(sp) ? sp : null));
+  }
+  renderTucker();
+  update();
+});
 renderTucker();
 
 function renderResults(res) {

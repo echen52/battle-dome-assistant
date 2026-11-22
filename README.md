@@ -5,7 +5,8 @@ tree shows every trainer's three Pokémon, a battle-style line, a stat line, and
 for matches already played, the move the winner "won using". This narrows the
 opponent's team down to the sets that fit all of it.
 
-Level 50. Static ES modules, no build step, no npm tree.
+Level 50 and Level 100 (header toggle; Level 100 = Open Level with a level-100
+team, as on the other Frontier sites). Static ES modules, no build step, no npm tree.
 
 ## Using it
 
@@ -33,7 +34,7 @@ letters, then Enter (or arrow keys / click).
 The result shows the count after each clue, and for each species which sets are
 still possible and in how many teams.
 
-**Speed.** Each set shows its exact Level 50 Speed. Regular Dome opponents all
+**Speed.** Each set shows its exact Speed at the chosen level. Regular Dome opponents all
 have IVs of 3: `CreateDomeOpponentMon` passes the bracket slot (0-15) where it
 should pass the trainer id (`src/battle_dome.c:2591`, marked BUG), and every id
 <= 99 gets 3. The Speeds are computed once in `tools/gen_data.mjs` (CALC_STAT +
@@ -41,6 +42,12 @@ ModifyStatByNature, `src/pokemon.c`), not in the page. The **Tucker** panel list
 his Silver and Gold teams with their Speeds. His Pokémon come from
 `sFrontierBrainsMons` (`src/frontier_util.c`) with IVs 20 (Silver) and 31 (Gold),
 so the bug doesn't apply to him.
+
+**Level 100.** In Open Level the opponents take your highest party level, at
+least 60 (`GetFrontierEnemyMonLevel`, `src/battle_tower.c:3247`), so the
+Level 100 Speeds assume a level-100 team. Open also allows the sets past
+`FRONTIER_MONS_HIGH_TIER` (Dragonite, Tyranitar, the legendaries' later sets);
+the trainers are the same. The choice is remembered (`domeAssistant.level`).
 
 ### Your team and "Who they bring"
 

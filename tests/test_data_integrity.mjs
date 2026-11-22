@@ -22,18 +22,18 @@ check(STYLE_TEXTS[27] === "Uses a well-balanced mix of moves.", "style 27 text")
 check(STAT_TEXTS[42] === "Raises POKéMON in a well-balanced way.", "balanced text");
 check(STYLE_THRESHOLDS[27].every((x) => x === 0), "BALANCED has no thresholds");
 
-// Tucker's Level 50 Speeds, worked by hand from frontier_util.c:
-//   Gold Latias 110 base, IV 31, 6 EV, Modest: (220+31+1)*50/100+5 = 131
-//   Gold Metagross 70, IV 31, 0 EV, Brave: (171*50/100+5)=90 -> 90*0.9 = 81
-//   Silver Charizard 100, IV 20, 152 EV (38), Quiet: 258*50/100+5 = 134 -> 120
-const brainSpeeds = (k) => DOME_BRAIN[k].map((m) => `${m.species.slice(8)} ${m.speed}`).join();
-check(brainSpeeds("silver") === "SWAMPERT 67,SALAMENCE 127,CHARIZARD 120", `silver speeds ${brainSpeeds("silver")}`);
-check(brainSpeeds("gold") === "SWAMPERT 72,METAGROSS 81,LATIAS 131", `gold speeds ${brainSpeeds("gold")}`);
+// Tucker's Speeds, worked by hand from frontier_util.c (L50 | L100):
+//   Gold Latias 110 base, IV 31, 6 EV, Modest: 252*50/100+5 = 131 | 252+5 = 257
+//   Gold Metagross 70, IV 31, 0 EV, Brave: 90 -> 81 | 176 -> 158
+//   Silver Charizard 100, IV 20, 152 EV (38), Quiet: 134 -> 120 | 263 -> 236
+const brainSpeeds = (k) => DOME_BRAIN[k].map((m) => `${m.species.slice(8)} ${m.spe50}/${m.spe100}`).join();
+check(brainSpeeds("silver") === "SWAMPERT 67/130,SALAMENCE 127/250,CHARIZARD 120/236", `silver speeds ${brainSpeeds("silver")}`);
+check(brainSpeeds("gold") === "SWAMPERT 72/140,METAGROSS 81/158,LATIAS 131/257", `gold speeds ${brainSpeeds("gold")}`);
 check(DOME_BRAIN.silver.every((m) => m.iv === 20) && DOME_BRAIN.gold.every((m) => m.iv === 31), "brain IVs 20 / 31");
 // a few regular sets by hand (IV 3)
-//   Sunkern 1: base 30, no Speed EV, Relaxed: (63*50/100+5)=36 -> 32
-//   Suicune 6: base 85, HP/Def/SpDef, Modest: 173*50/100+5 = 91
-check(MONS[0].speed === 32 && MONS[881].speed === 91, "hand-checked set speeds");
+//   Sunkern 1: base 30, no Speed EV, Relaxed: 36 -> 32 | 68 -> 61
+//   Suicune 6: base 85, HP/Def/SpDef, Modest: 91 | 178
+check(MONS[0].spe50 === 32 && MONS[0].spe100 === 61 && MONS[881].spe50 === 91 && MONS[881].spe100 === 178, "hand-checked set speeds");
 
 if (existsSync(DECOMP)) {
   const src = readFileSync(new URL("src/data/battle_frontier/battle_frontier_mons.h", DECOMP), "utf8");
@@ -72,18 +72,19 @@ if (existsSync(DECOMP)) {
     if (h) { sp = h[1]; continue; }
     const b = line.match(/\.baseSpeed\s*=\s*(\d+)/); if (b && sp && baseSpe[sp] == null) baseSpe[sp] = +b[1];
   }
-  const spe = (species, iv, ev, nature) => {
-    const raw = Math.trunc((2 * baseSpe[species] + iv + Math.trunc(ev / 4)) / 2) + 5;   // level 50: *50/100
+  const spe = (species, iv, ev, nature, level) => {
+    const raw = Math.trunc((2 * baseSpe[species] + iv + Math.trunc(ev / 4)) * level / 100) + 5;
     const f = NATURE_STAT_TABLE[nature][2];
     return f === 0 ? raw : Math.trunc(raw * (100 + 10 * f) / 100);
   };
   MONS.forEach((m) => {
     const n = [0, 1, 2, 3, 4, 5].filter((b) => m.evSpread & (1 << b)).length;
     const ev = m.evSpread & 8 ? Math.min(255, Math.trunc(510 / n)) : 0;   // n is 2 or 3 in this data
-    check(spe(m.species, 3, ev, m.nature) === m.speed, `mon ${m.i} speed ${m.speed}`);
+    check(spe(m.species, 3, ev, m.nature, 50) === m.spe50, `mon ${m.i} L50 speed ${m.spe50}`);
+    check(spe(m.species, 3, ev, m.nature, 100) === m.spe100, `mon ${m.i} L100 speed ${m.spe100}`);
   });
   for (const m of [...DOME_BRAIN.silver, ...DOME_BRAIN.gold])
-    check(spe(m.species, m.iv, m.evs[3], m.nature) === m.speed, `brain ${m.species} speed`);
+    check(spe(m.species, m.iv, m.evs[3], m.nature, 50) === m.spe50 && spe(m.species, m.iv, m.evs[3], m.nature, 100) === m.spe100, `brain ${m.species} speed`);
 } else console.log("(decomp not found — decomp re-parse skipped)");
 
 if (existsSync(CSVDIR)) {
