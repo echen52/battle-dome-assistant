@@ -9,6 +9,10 @@ const LEVEL = 50;
 // unreachable (18 ENFEEBLE_HIGH, 24 DEF_OVER_ATK — battle_dome.c:549, 555);
 // 28-31 are past BALANCED, which always matches.
 const SHOWN_STYLES = [...Array(28).keys()].filter((s) => s !== 18 && s !== 24);
+// GILLIAN is the only repeated trainer name. The early one (id 16, Lady) is
+// only drawn in the first tournament (challenge 0 range, battle_tower.c:857),
+// so it's left out and every trainer is picked by name alone.
+const PICKABLE_TRAINERS = TRAINERS.filter((t) => t.id !== 16);
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -18,40 +22,97 @@ const el = (tag, props = {}, ...kids) => {
 };
 
 // ── labels ──
-function prettyClass(constant) {
-  const words = constant.replace(/^FACILITY_CLASS_/, "").split("_");
-  const suffix = ["M", "F"].includes(words.at(-1)) ? ` (${words.pop()})` : "";
-  return words.map((w) => w[0] + w.slice(1).toLowerCase()).join(" ") + suffix;
-}
-const trainerLabel = (t) => `${t.name} (${prettyClass(t.cls)})`;
+const titleCase = (s) => s.toLowerCase().replace(/(^|[\s\-.])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+const trainerName = (t) => titleCase(t.name);
 const speciesName = (c) => SPECIES[c]?.name ?? c;
-const natureName = (c) => c.replace("NATURE_", "")[0] + c.replace("NATURE_", "").slice(1).toLowerCase();
+const natureName = (c) => titleCase(c.replace("NATURE_", ""));
 const itemName = (c) => ITEM_NAMES[c] ?? c;
 const moveName = (c) => MOVES[c]?.name ?? c;
 const setLabel = (i) => `${speciesName(MONS[i].species)} ${MONS[i].ord}`;
+const byLabel = (a, b) => a.label.localeCompare(b.label);
 
-const TRAINER_BY_LABEL = new Map(TRAINERS.map((t) => [trainerLabel(t).toUpperCase(), t.id]));
-const ALL_SPECIES = [...new Set(TRAINERS.flatMap((t) => trainerSets(t.id, LEVEL)).map((i) => MONS[i].species))]
-  .sort((a, b) => speciesName(a).localeCompare(speciesName(b)));
+const ALL_SPECIES = [...new Set(TRAINERS.flatMap((t) => trainerSets(t.id, LEVEL)).map((i) => MONS[i].species))];
+
+// ── filtering combobox ─────────────────────────────────────────────────────
+// Same behaviour as the Arena / Palace / Tower pickers: type to narrow
+// (starts-with matches first, then contains), arrow keys + Enter, mousedown
+// to pick, and the text snaps back to the real value on blur. Enter with
+// nothing highlighted takes the top match, so typing a few letters + Enter
+// is enough.
+function combo({ id, ariaLabel, placeholder, options, value, onPick }) {
+  const wrap = el("div", { className: "combo-wrap" });
+  const input = el("input", { type: "text", id: id ?? "", className: "combo-input", autocomplete: "off", spellcheck: false, placeholder });
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-expanded", "false");
+  if (ariaLabel) input.setAttribute("aria-label", ariaLabel);
+  const list = el("div", { className: "combo-list", role: "listbox" });
+  wrap.append(input, list);
+  let opts = options, current = value ?? null, hi = -1, shown = [];
+
+  const labelOf = (v) => opts.find((o) => o.value === v)?.label ?? "";
+  const close = () => { list.classList.remove("open"); list.replaceChildren(); input.setAttribute("aria-expanded", "false"); hi = -1; shown = []; };
+  const pick = (v) => { current = v; input.value = labelOf(v); close(); onPick(v); };
+  const highlight = () => {
+    [...list.children].forEach((c, i) => c.classList.toggle("hi", i === hi));
+    if (hi >= 0) list.children[hi]?.scrollIntoView({ block: "nearest" });
+  };
+  function render() {
+    const q = input.value.trim().toLowerCase();
+    const showAll = !q || q === labelOf(current).toLowerCase();
+    const lower = (o) => o.label.toLowerCase();
+    shown = showAll ? opts : [
+      ...opts.filter((o) => lower(o) === q),
+      ...opts.filter((o) => lower(o) !== q && lower(o).startsWith(q)),
+      ...opts.filter((o) => !lower(o).startsWith(q) && lower(o).includes(q)),
+    ];
+    shown = shown.slice(0, 60);
+    hi = -1;
+    list.replaceChildren(...(shown.length ? shown.map((o) => {
+      const item = el("div", { className: "combo-item", textContent: o.label, role: "option" });
+      item.dataset.value = o.value;
+      item.addEventListener("mousedown", (e) => { e.preventDefault(); pick(o.value); });
+      return item;
+    }) : [el("div", { className: "combo-empty", textContent: "No matches" })]));
+    list.classList.add("open");
+    input.setAttribute("aria-expanded", "true");
+  }
+  input.addEventListener("input", render);
+  input.addEventListener("focus", () => { input.select(); render(); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); if (!list.classList.contains("open")) render(); hi = Math.min(hi + 1, shown.length - 1); highlight(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); hi = Math.max(hi - 1, -1); highlight(); }
+    else if (e.key === "Enter") {
+      const target = shown[hi >= 0 ? hi : 0];
+      if (target && list.classList.contains("open")) { e.preventDefault(); pick(target.value); }
+    } else if (e.key === "Escape") { close(); input.value = labelOf(current); }
+  });
+  input.addEventListener("blur", () => setTimeout(() => {
+    close();
+    if (input.value.trim() === "" && current != null) { current = null; onPick(null); }
+    else input.value = labelOf(current);
+  }, 120));
+  input.value = labelOf(current);
+  return {
+    el: wrap, input,
+    set(next, v) {           // new options and/or value, without firing onPick
+      opts = next;
+      current = v ?? null;
+      if (document.activeElement !== input) input.value = labelOf(current);
+      input.disabled = opts.length === 0;
+    },
+  };
+}
 
 // ── state ──
 const blank = () => ({ trainerId: null, species: [null, null, null], style: null, stat: null, wins: [] });
 let state = blank();
 
-function readTrainer() {
-  const v = $("trainerFilter").value.trim().toUpperCase();
-  if (TRAINER_BY_LABEL.has(v)) return TRAINER_BY_LABEL.get(v);
-  const byName = TRAINERS.filter((t) => t.name === v);
-  return byName.length === 1 ? byName[0].id : null;
-}
-
-// ── the narrowing, with "what if" counts for each dropdown ──
+// ── the narrowing, with "what if" counts for the style / stat pickers ──
 function compute() {
   const { trainerId, species } = state;
   if (trainerId == null || species.some((s) => !s)) return null;
   const base = candidateTeams(trainerId, species, LEVEL);
-  const winsUpTo = (r) => state.wins.slice(0, r);
-  const passWins = (t, upTo = state.wins.length) => winsConsistent(t, winsUpTo(upTo));
+  const passWins = (t, upTo = state.wins.length) => winsConsistent(t, state.wins.slice(0, upTo));
   const styleOf = new Map(base.map((t) => [t, battleStyle(t)]));
   const statOf = new Map(base.map((t) => [t, statLine(t)]));
   const okStyle = (t) => state.style == null || styleOf.get(t) === state.style;
@@ -68,8 +129,7 @@ function compute() {
     teams = teams.filter((t) => passWins(t, r + 1));
     steps.push({ label: `Win ${r + 1}`, left: teams.length });
   }
-  // dropdown counts: how many teams would remain if you picked this option,
-  // given every OTHER clue already entered
+  // how many teams would remain with each option, given every OTHER clue
   const styleCounts = new Map(), statCounts = new Map();
   for (const t of base) {
     if (!passWins(t)) continue;
@@ -79,32 +139,47 @@ function compute() {
   return { base, teams, steps, styleCounts, statCounts, roundMoves };
 }
 
-// ── rendering ──
-function fillSelect(sel, options, value, placeholder) {
-  sel.replaceChildren(el("option", { value: "", textContent: placeholder }));
-  for (const o of options) sel.append(el("option", { value: o.value, textContent: o.label, disabled: !!o.disabled }));
-  sel.value = value ?? "";
-}
+// ── persistent pickers ──
+const trainerCombo = combo({
+  id: "trainerInput", placeholder: "Type a trainer's name…",
+  options: PICKABLE_TRAINERS.map((t) => ({ value: t.id, label: trainerName(t) })).sort(byLabel),
+  onPick: (id) => {
+    if (id === state.trainerId) return;
+    state = { ...blank(), trainerId: id, wins: state.wins.map(() => ({ move: null, loser: null })) };
+    update();
+  },
+});
+$("trainerCombo").append(trainerCombo.el);
 
-function renderSpecies() {
-  const list = state.trainerId == null ? [] : trainerSpecies(state.trainerId, LEVEL)
-    .sort((a, b) => speciesName(a).localeCompare(speciesName(b)));
-  for (let k = 0; k < 3; k++) {
+const speciesCombos = [0, 1, 2].map((k) => {
+  const c = combo({
+    ariaLabel: `Pokémon ${k + 1}`, placeholder: `Pokémon ${k + 1}`, options: [],
+    onPick: (v) => { state.species[k] = v; update(); },
+  });
+  $("speciesCombos").append(c.el);
+  return c;
+});
+const styleCombo = combo({
+  id: "styleInput", placeholder: "Type part of the line…", options: [],
+  onPick: (v) => { state.style = v; update(); },
+});
+$("styleCombo").append(styleCombo.el);
+const statCombo = combo({
+  id: "statInput", placeholder: "Type part of the line…", options: [],
+  onPick: (v) => { state.stat = v; update(); },
+});
+$("statCombo").append(statCombo.el);
+
+function renderPickers(res) {
+  const list = state.trainerId == null ? [] : trainerSpecies(state.trainerId, LEVEL);
+  speciesCombos.forEach((c, k) => {
     const taken = state.species.filter((s, j) => j !== k && s);
-    fillSelect($(`species${k}`), list.map((c) => ({ value: c, label: speciesName(c), disabled: taken.includes(c) })),
-      state.species[k], state.trainerId == null ? "Pick a trainer first" : `Pokémon ${k + 1}`);
-    $(`species${k}`).disabled = state.trainerId == null;
-  }
-}
-
-function renderClueSelects(res) {
+    c.set(list.filter((s) => !taken.includes(s)).map((s) => ({ value: s, label: speciesName(s) })).sort(byLabel), state.species[k]);
+    c.input.placeholder = state.trainerId == null ? "Pick a trainer first" : `Pokémon ${k + 1}`;
+  });
   const count = (m, k) => (res ? ` (${m.get(k) ?? 0})` : "");
-  fillSelect($("styleSelect"), SHOWN_STYLES.map((s) => ({
-    value: s, label: STYLE_TEXTS[s] + count(res?.styleCounts ?? new Map(), s),
-  })), state.style, "Not entered");
-  fillSelect($("statSelect"), STAT_TEXTS.map((txt, s) => ({
-    value: s, label: txt + count(res?.statCounts ?? new Map(), s),
-  })), state.stat, "Not entered");
+  styleCombo.set(SHOWN_STYLES.map((s) => ({ value: s, label: STYLE_TEXTS[s] + count(res?.styleCounts, s) })), state.style);
+  statCombo.set(STAT_TEXTS.map((txt, s) => ({ value: s, label: txt + count(res?.statCounts, s) })), state.stat);
 }
 
 function renderWins(res) {
@@ -112,30 +187,29 @@ function renderWins(res) {
   rows.replaceChildren();
   state.wins.forEach((w, r) => {
     const box = el("fieldset", { className: "win-row" }, el("legend", { textContent: ["First round", "Second round", "Semifinal"][r] + " win" }));
-    const moves = (res?.roundMoves[r] ?? []).slice().sort((a, b) => moveName(a).localeCompare(moveName(b)));
-    if (w.move && !moves.includes(w.move)) moves.unshift(w.move);
-    const mv = el("select", { ariaLabel: `Round ${r + 1} move shown` });
-    fillSelect(mv, [
-      ...moves.filter((m) => m !== "MOVE_NONE").map((m) => ({ value: m, label: moveName(m) })),
-      { value: "MOVE_NONE", label: "Won without using a move" },
-    ], w.move, "Move on the card…");
-    mv.addEventListener("change", () => { w.move = mv.value || null; update(); });
-    box.append(el("label", { className: "mini", textContent: "Move shown" }), mv,
-      el("label", { className: "mini", textContent: "Beaten trainer's Pokémon (optional, makes this much stronger)" }));
+    const moves = (res?.roundMoves[r] ?? []).filter((m) => m !== "MOVE_NONE");
+    if (w.move && w.move !== "MOVE_NONE" && !moves.includes(w.move)) moves.push(w.move);
+    const mv = combo({
+      ariaLabel: `Round ${r + 1} move shown`, placeholder: "Move on the card…", value: w.move,
+      options: [...moves.map((m) => ({ value: m, label: moveName(m) })).sort(byLabel), { value: "MOVE_NONE", label: "Won without using a move" }],
+      onPick: (v) => { w.move = v; update(); },
+    });
+    box.append(el("span", { className: "mini", textContent: "Move shown" }), mv.el,
+      el("span", { className: "mini", textContent: "Beaten trainer's Pokémon (optional, makes this much stronger)" }));
     const three = el("div", { className: "three" });
+    w.loserDraft = w.loserDraft ?? [null, null, null];
     for (let k = 0; k < 3; k++) {
-      const s = el("select", { ariaLabel: `Round ${r + 1} beaten Pokémon ${k + 1}` });
-      const taken = (w.loser ?? []).filter((x, j) => j !== k && x);
-      fillSelect(s, ALL_SPECIES.map((c) => ({ value: c, label: speciesName(c), disabled: taken.includes(c) })),
-        w.loser?.[k], "—");
-      s.addEventListener("change", () => {
-        w.loserDraft = w.loserDraft ?? [null, null, null];
-        w.loserDraft[k] = s.value || null;
-        w.loser = w.loserDraft.every(Boolean) ? w.loserDraft.slice() : null;
-        update();
+      const taken = w.loserDraft.filter((x, j) => j !== k && x);
+      const c = combo({
+        ariaLabel: `Round ${r + 1} beaten Pokémon ${k + 1}`, placeholder: "—", value: w.loserDraft[k],
+        options: ALL_SPECIES.filter((s) => !taken.includes(s)).map((s) => ({ value: s, label: speciesName(s) })).sort(byLabel),
+        onPick: (v) => {
+          w.loserDraft[k] = v;
+          w.loser = w.loserDraft.every(Boolean) ? w.loserDraft.slice() : null;
+          update();
+        },
       });
-      if (w.loserDraft) s.value = w.loserDraft[k] ?? "";
-      three.append(s);
+      three.append(c.el);
     }
     box.append(three);
     rows.append(box);
@@ -193,29 +267,13 @@ function renderResults(res) {
 
 function update() {
   const res = compute();
-  renderClueSelects(res);
+  trainerCombo.set(PICKABLE_TRAINERS.map((t) => ({ value: t.id, label: trainerName(t) })).sort(byLabel), state.trainerId);
+  renderPickers(res);
   renderWins(res);
   renderResults(res);
 }
 
 // ── events ──
-$("trainerOptions").append(...TRAINERS.map((t) => el("option", { value: trainerLabel(t) })));
-$("trainerFilter").addEventListener("input", () => {
-  const id = readTrainer();
-  if (id === state.trainerId) return;
-  state = { ...blank(), trainerId: id, wins: state.wins.map(() => ({ move: null, loser: null })) };
-  const dup = id == null ? [] : TRAINERS.filter((t) => t.name === TRAINERS[id].name);
-  $("trainerNote").textContent = id == null ? "" : dup.length > 1 ? `${trainerLabel(TRAINERS[id])} — there are ${dup.length} trainers called ${TRAINERS[id].name}; check the class.` : "";
-  renderSpecies();
-  update();
-});
-for (let k = 0; k < 3; k++) $(`species${k}`).addEventListener("change", (e) => {
-  state.species[k] = e.target.value || null;
-  renderSpecies();
-  update();
-});
-$("styleSelect").addEventListener("change", (e) => { state.style = e.target.value === "" ? null : +e.target.value; update(); });
-$("statSelect").addEventListener("change", (e) => { state.stat = e.target.value === "" ? null : +e.target.value; update(); });
 for (const r of document.querySelectorAll('input[name="wins"]')) r.addEventListener("change", (e) => {
   const n = +e.target.value;
   state.wins = Array.from({ length: n }, (_, k) => state.wins[k] ?? { move: null, loser: null });
@@ -223,12 +281,8 @@ for (const r of document.querySelectorAll('input[name="wins"]')) r.addEventListe
 });
 $("resetBtn").addEventListener("click", () => {
   state = blank();
-  $("trainerFilter").value = "";
-  $("trainerNote").textContent = "";
   document.querySelector('input[name="wins"][value="0"]').checked = true;
-  renderSpecies();
   update();
 });
 
-renderSpecies();
 update();

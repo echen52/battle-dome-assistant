@@ -15,8 +15,12 @@ Serve the folder over HTTP and open `index.html` (ES modules don't load from `fi
 python -m http.server 8140 --directory battle-dome-assistant
 ```
 
-1. **Trainer.** Type the name and pick `NAME (Class)`. Names aren't unique:
-   there are two GILLIANs (Lady, id 16; Cooltrainer (F), id 227).
+Every picker is a type-to-search box, like the other Frontier sites: type a few
+letters, then Enter (or arrow keys / click).
+
+1. **Trainer.** By name. GILLIAN is the only repeated name in the game; the
+   early one (Lady, id 16) is only drawn in the first tournament, so the site
+   leaves it out and "Gillian" is the late-game Cooltrainer (id 227).
 2. **Pokémon on the card.** Any order.
 3. **Battle style / Stats.** Pick the text exactly as the card shows it. The
    number after each option is how many teams would remain if you picked it.

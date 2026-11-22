@@ -34,7 +34,6 @@ const url = `http://127.0.0.1:${server.address().port}/`;
 
 let fails = 0;
 const check = (c, m) => { if (!c) { fails++; console.log("FAIL:", m); } };
-const prettyClass = (c) => { const w = c.replace(/^FACILITY_CLASS_/, "").split("_"); const s = ["M", "F"].includes(w.at(-1)) ? ` (${w.pop()})` : ""; return w.map((x) => x[0] + x.slice(1).toLowerCase()).join(" ") + s; };
 
 // a case with real ambiguity left after style+stat, and one win with a loser
 const rng = mulberry32(99);
@@ -58,14 +57,26 @@ page.on("pageerror", (e) => errors.push(String(e)));
 await page.goto(url);
 
 const t = TRAINERS[cas.clues.trainerId];
-await page.fill("#trainerFilter", `${t.name} (${prettyClass(t.cls)})`);
-for (let k = 0; k < 3; k++) await page.selectOption(`#species${k}`, cas.clues.species[k]);
-await page.selectOption("#styleSelect", String(cas.clues.style));
-await page.selectOption("#statSelect", String(cas.clues.stat));
+const titleCase = (x) => x.toLowerCase().replace(/(^|[\s\-.])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+// type into a combobox like a user (lower-case, as typed) and press Enter
+async function pick(sel, text) {
+  await page.click(sel);
+  await page.fill(sel, text.toLowerCase());
+  await page.keyboard.press("Enter");
+}
+const speciesSel = (k) => `#speciesCombos input[aria-label="Pokémon ${k + 1}"]`;
+const enterTeam = async () => {
+  await pick("#trainerInput", t.name);
+  for (let k = 0; k < 3; k++) await pick(speciesSel(k), SPECIES[cas.clues.species[k]].name);
+};
+await enterTeam();
+check((await page.inputValue("#trainerInput")) === titleCase(t.name), "trainer autofill");
+await pick("#styleInput", STYLE_TEXTS[cas.clues.style]);
+await pick("#statInput", STAT_TEXTS[cas.clues.stat]);
 await page.click('.seg label:has(input[value="1"])');
 const w = cas.clues.wins[0];
-await page.selectOption('#winRows select[aria-label="Round 1 move shown"]', w.move);
-for (let k = 0; k < 3; k++) await page.selectOption(`#winRows select[aria-label="Round 1 beaten Pokémon ${k + 1}"]`, w.loser[k]);
+await pick('#winRows input[aria-label="Round 1 move shown"]', MOVES[w.move].name);
+for (let k = 0; k < 3; k++) await pick(`#winRows input[aria-label="Round 1 beaten Pokémon ${k + 1}"]`, SPECIES[w.loser[k]].name);
 
 const stepNums = await page.$$eval("#steps .step b", (bs) => bs.map((b) => +b.textContent));
 check(stepNums.join() === cas.r.steps.map((s) => s.left).join(), `steps ui ${stepNums} vs engine ${cas.r.steps.map((s) => s.left)}`);
@@ -73,23 +84,32 @@ const summary = await page.textContent("#teamListSummary");
 check(summary.includes(String(cas.r.teams.length)), `summary "${summary}" vs ${cas.r.teams.length}`);
 const setNames = await page.$$eval("#breakdown .set-name", (tds) => tds.map((td) => td.textContent));
 for (const i of cas.team) check(setNames.includes(`${SPECIES[MONS[i].species].name} ${MONS[i].ord}`), `true set ${MONS[i].label} not listed`);
-const styleOpt = await page.$eval("#styleSelect", (s) => s.selectedOptions[0].textContent);
-check(styleOpt.startsWith(STYLE_TEXTS[cas.clues.style]), `style option text "${styleOpt}"`);
+check((await page.inputValue("#styleInput")).startsWith(STYLE_TEXTS[cas.clues.style]), "style text shown");
 if (shotsDir) await page.screenshot({ path: join(shotsDir, "desktop.png"), fullPage: true });
+
+// partial typing narrows the list (starts-with first)
+await page.click("#trainerInput");
+await page.fill("#trainerInput", t.name.slice(0, 3).toLowerCase());
+const items = await page.$$eval("#trainerCombo .combo-item", (els) => els.map((e) => e.textContent));
+check(items.length > 0 && items.every((x) => x.toLowerCase().includes(t.name.slice(0, 3).toLowerCase())), `filter list ${items.slice(0, 5)}`);
+check(items[0].toLowerCase().startsWith(t.name.slice(0, 3).toLowerCase()), "starts-with matches first");
+check(!items.some((x) => x.includes("(")), "trainer labels carry no class");
+await page.keyboard.press("Escape");
+check((await page.inputValue("#trainerInput")) === titleCase(t.name), "Escape restores the value");
+await page.click("h1");
 
 // an impossible stat clue -> contradiction message
 const otherStat = [...Array(43).keys()].find((s) => !cas.r.teams.some((tm) => statLine(tm) === s) && s !== cas.clues.stat);
-await page.selectOption("#statSelect", String(otherStat));
+await pick("#statInput", STAT_TEXTS[otherStat]);
 check(await page.isVisible("#message.bad"), "contradiction message not shown");
 
 // reset
 await page.click("#resetBtn");
-check((await page.inputValue("#trainerFilter")) === "" && (await page.$$("#breakdown .species-block")).length === 0, "reset did not clear");
+check((await page.inputValue("#trainerInput")) === "" && (await page.$$("#breakdown .species-block")).length === 0, "reset did not clear");
 
 // mobile width
 await page.setViewportSize({ width: 375, height: 800 });
-await page.fill("#trainerFilter", `${t.name} (${prettyClass(t.cls)})`);
-for (let k = 0; k < 3; k++) await page.selectOption(`#species${k}`, cas.clues.species[k]);
+await enterTeam();
 const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 check(overflow <= 0, `horizontal scroll at 375px: ${overflow}px`);
 if (shotsDir) await page.screenshot({ path: join(shotsDir, "mobile.png"), fullPage: true });

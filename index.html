@@ -19,29 +19,23 @@
     <h2 id="cardHead">Trainer card</h2>
 
     <div class="field">
-      <label for="trainerFilter">Trainer</label>
-      <input type="text" id="trainerFilter" list="trainerOptions" autocomplete="off" placeholder="Type a name…" />
-      <datalist id="trainerOptions"></datalist>
-      <p class="note" id="trainerNote"></p>
+      <label for="trainerInput">Trainer</label>
+      <div id="trainerCombo"></div>
     </div>
 
     <fieldset class="field">
       <legend>Pokémon on the card</legend>
-      <div class="three">
-        <select id="species0" aria-label="First Pokémon"></select>
-        <select id="species1" aria-label="Second Pokémon"></select>
-        <select id="species2" aria-label="Third Pokémon"></select>
-      </div>
+      <div class="three" id="speciesCombos"></div>
     </fieldset>
 
     <div class="field">
-      <label for="styleSelect">Battle style <span class="dim">(2nd line)</span></label>
-      <select id="styleSelect"></select>
+      <label for="styleInput">Battle style <span class="dim">(2nd line)</span></label>
+      <div id="styleCombo"></div>
     </div>
 
     <div class="field">
-      <label for="statSelect">Stats <span class="dim">(3rd line)</span></label>
-      <select id="statSelect"></select>
+      <label for="statInput">Stats <span class="dim">(3rd line)</span></label>
+      <div id="statCombo"></div>
     </div>
 
     <h2 id="winsHead">Matches they've won</h2>
