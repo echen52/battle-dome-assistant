@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Battle Dome Assistant</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2310101c'/%3E%3Ctext x='3' y='12' font-size='10' fill='%23f0b84a' font-family='monospace'%3ED%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+<header class="app-header">
+  <h1>Battle Dome Assistant</h1>
+  <span class="scope-tag">Level 50</span>
+  <button id="resetBtn" class="btn" type="button">Reset</button>
+</header>
+
+<main class="layout">
+  <section class="panel" aria-labelledby="cardHead">
+    <h2 id="cardHead">Trainer card</h2>
+
+    <div class="field">
+      <label for="trainerFilter">Trainer</label>
+      <input type="text" id="trainerFilter" list="trainerOptions" autocomplete="off" placeholder="Type a name…" />
+      <datalist id="trainerOptions"></datalist>
+      <p class="note" id="trainerNote"></p>
+    </div>
+
+    <fieldset class="field">
+      <legend>Pokémon on the card</legend>
+      <div class="three">
+        <select id="species0" aria-label="First Pokémon"></select>
+        <select id="species1" aria-label="Second Pokémon"></select>
+        <select id="species2" aria-label="Third Pokémon"></select>
+      </div>
+    </fieldset>
+
+    <div class="field">
+      <label for="styleSelect">Battle style <span class="dim">(2nd line)</span></label>
+      <select id="styleSelect"></select>
+    </div>
+
+    <div class="field">
+      <label for="statSelect">Stats <span class="dim">(3rd line)</span></label>
+      <select id="statSelect"></select>
+    </div>
+
+    <h2 id="winsHead">Matches they've won</h2>
+    <fieldset class="field">
+      <legend class="sr-only">Number of wins</legend>
+      <div class="seg" role="radiogroup" aria-labelledby="winsHead">
+        <label><input type="radio" name="wins" value="0" checked /> 0</label>
+        <label><input type="radio" name="wins" value="1" /> 1</label>
+        <label><input type="radio" name="wins" value="2" /> 2</label>
+        <label><input type="radio" name="wins" value="3" /> 3</label>
+      </div>
+    </fieldset>
+    <div id="winRows"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="resHead" aria-live="polite">
+    <h2 id="resHead">Possible teams</h2>
+    <div id="steps" class="steps"></div>
+    <div id="message" class="message" hidden></div>
+    <div id="breakdown"></div>
+    <details id="teamListWrap" hidden>
+      <summary id="teamListSummary">All teams</summary>
+      <ol id="teamList" class="team-list"></ol>
+    </details>
+  </section>
+</main>
+
+<footer class="app-footer">
+  Rules ported from the pokeemerald decomp (a3c551f). Opponents' Pokémon in the Dome fight with IVs of 3.
+</footer>
+
+<script type="module" src="app.mjs"></script>
+</body>
+</html>
