@@ -1,5 +1,5 @@
 // ── app.mjs — page wiring. All rules live in engine.mjs. ───────────────────
-import { MONS, TRAINERS, MOVES, SPECIES, ITEM_NAMES, STYLE_TEXTS, STAT_TEXTS } from "./data/dome_data.mjs";
+import { MONS, TRAINERS, MOVES, SPECIES, ITEM_NAMES, STYLE_TEXTS, STAT_TEXTS, DOME_BRAIN } from "./data/dome_data.mjs";
 import {
   trainerSets, trainerSpecies, candidateTeams, battleStyle, statLine, winsConsistent, setBreakdown, teamMoves, opponentPick,
 } from "./engine.mjs";
@@ -251,9 +251,25 @@ function setRow(i, teams) {
     el("td", { className: "set-name", textContent: setLabel(i) }),
     el("td", { textContent: itemName(m.item) }),
     el("td", { textContent: natureName(m.nature) }),
+    el("td", { className: "spe", textContent: String(m.speed) }),
     el("td", { className: "moves", textContent: m.moves.filter((x) => x !== "MOVE_NONE").map(moveName).join(" · ") }),
     el("td", { className: "num", textContent: String(teams) }));
 }
+
+// Tucker's fixed teams (Level 50 Speeds precomputed in data/dome_data.mjs)
+function renderTucker() {
+  const symbol = document.querySelector('input[name="symbol"]:checked').value;
+  $("tuckerTable").replaceChildren(
+    el("thead", {}, el("tr", {}, ...["Pokémon", "Item", "Nature", "Speed", "Moves"].map((h) => el("th", { textContent: h, className: h === "Speed" ? "spe" : "" })))),
+    el("tbody", {}, ...DOME_BRAIN[symbol].map((m) => el("tr", {},
+      el("td", { className: "set-name", textContent: speciesName(m.species) }),
+      el("td", { textContent: itemName(m.item) }),
+      el("td", { textContent: natureName(m.nature) }),
+      el("td", { className: "spe", textContent: String(m.speed) }),
+      el("td", { className: "moves", textContent: m.moves.map(moveName).join(" · ") })))));
+}
+for (const r of document.querySelectorAll('input[name="symbol"]')) r.addEventListener("change", renderTucker);
+renderTucker();
 
 function renderResults(res) {
   const msg = $("message");
@@ -281,7 +297,7 @@ function renderResults(res) {
 
   for (const b of setBreakdown(res.teams, state.species)) {
     const table = el("table", { className: "sets" },
-      el("thead", {}, el("tr", {}, ...["Set", "Item", "Nature", "Moves", "Teams"].map((h) => el("th", { textContent: h, className: h === "Teams" ? "num" : "" })))),
+      el("thead", {}, el("tr", {}, ...["Set", "Item", "Nature", "Speed", "Moves", "Teams"].map((h) => el("th", { textContent: h, className: h === "Teams" ? "num" : h === "Speed" ? "spe" : "" })))),
       el("tbody", {}, ...b.sets.map((s) => setRow(s.i, s.teams))));
     const sure = b.sets.length === 1;
     $("breakdown").append(el("div", { className: "species-block" },

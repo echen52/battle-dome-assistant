@@ -5,14 +5,15 @@
 //
 // Checks: no console errors; a generated tournament entered THROUGH THE UI
 // gives the same count as engine.narrow() and lists the true team's sets; the
-// "contradiction" message appears for an impossible clue; reset clears; no
+// "contradiction" message appears for an impossible clue; reset clears; the
+// Speed column and Tucker's Silver/Gold table match the data; no
 // horizontal page scroll at 375px.
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MONS, TRAINERS, SPECIES, STYLE_TEXTS, STAT_TEXTS, MOVES } from "../data/dome_data.mjs";
+import { MONS, TRAINERS, SPECIES, STYLE_TEXTS, STAT_TEXTS, MOVES, DOME_BRAIN } from "../data/dome_data.mjs";
 import { narrow, battleStyle, statLine, teamMoves, canShow, opponentPick } from "../engine.mjs";
 import { mulberry32, randomTeam, LATE_TRAINERS } from "../tests/util.mjs";
 
@@ -85,6 +86,16 @@ check(summary.includes(String(cas.r.teams.length)), `summary "${summary}" vs ${c
 const setNames = await page.$$eval("#breakdown .set-name", (tds) => tds.map((td) => td.textContent));
 for (const i of cas.team) check(setNames.includes(`${SPECIES[MONS[i].species].name} ${MONS[i].ord}`), `true set ${MONS[i].label} not listed`);
 check((await page.inputValue("#styleInput")).startsWith(STYLE_TEXTS[cas.clues.style]), "style text shown");
+// Speed column: every listed set shows its precomputed IV-3 Speed
+const setSpeeds = await page.$$eval("#breakdown tbody tr", (trs) => trs.map((tr) => [tr.querySelector(".set-name").textContent, tr.querySelector(".spe").textContent]));
+const speedOf = Object.fromEntries(MONS.map((m) => [`${SPECIES[m.species].name} ${m.ord}`, String(m.speed)]));
+check(setSpeeds.length > 0 && setSpeeds.every(([n, v]) => speedOf[n] === v), `speed cells ${JSON.stringify(setSpeeds.slice(0, 3))}`);
+// Tucker panel: Silver by default, Gold on click
+const tuckerRows = () => page.$$eval("#tuckerTable tbody tr", (trs) => trs.map((tr) => `${tr.querySelector(".set-name").textContent} ${tr.querySelector(".spe").textContent}`).join());
+const want = (k) => DOME_BRAIN[k].map((m) => `${SPECIES[m.species].name} ${m.speed}`).join();
+check((await tuckerRows()) === want("silver"), `tucker silver: ${await tuckerRows()}`);
+await page.click('.seg label:has(input[value="gold"])');
+check((await tuckerRows()) === want("gold"), `tucker gold: ${await tuckerRows()}`);
 if (shotsDir) await page.screenshot({ path: join(shotsDir, "desktop.png"), fullPage: true });
 
 // ── your team: paste -> "Who they bring" matches the engine ──

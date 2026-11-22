@@ -122,9 +122,12 @@ table.sets th { color: var(--ink-dim); font-weight: 600; }
 table.sets .num { text-align: right; font-variant-numeric: tabular-nums; }
 table.sets .set-name { white-space: nowrap; font-weight: 600; }
 table.sets .moves { min-width: 220px; }
+table.sets .spe { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.tucker-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.tucker-head h2 { margin: 0; }
 
 /* Phones: each set becomes a small card — name + team count, item + nature,
-   then the moves on their own line — instead of a table that clips. */
+   then the moves with the Speed at the right — instead of a table that clips. */
 @media (max-width: 560px) {
   table.sets thead { display: none; }
   table.sets, table.sets tbody { display: block; }
@@ -138,8 +141,22 @@ table.sets .moves { min-width: 220px; }
   table.sets .num::after { content: " teams"; }
   table.sets td:nth-child(2) { grid-column: 1; grid-row: 2; }
   table.sets td:nth-child(3) { grid-column: 2; grid-row: 2; text-align: right; }
-  table.sets .moves { grid-column: 1 / -1; grid-row: 3; min-width: 0; color: var(--ink-dim); }
+  table.sets .moves { grid-column: 1; grid-row: 3; min-width: 0; color: var(--ink-dim); }
+  table.sets .spe { grid-column: 2; grid-row: 3; }
+  table.sets .spe::before { content: "Speed "; font-weight: 400; color: var(--ink-dim); }
 }
+
+/* Tucker's table sits in the narrow left column: always the card layout. */
+table.sets.cards thead { display: none; }
+table.sets.cards, table.sets.cards tbody { display: block; }
+table.sets.cards tr { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; padding: 5px 2px; border-bottom: 1px solid var(--panel-2); }
+table.sets.cards td { border: 0; padding: 0 4px; }
+table.sets.cards .set-name { grid-column: 1; grid-row: 1; }
+table.sets.cards td:nth-child(2) { grid-column: 1; grid-row: 2; }
+table.sets.cards td:nth-child(3) { grid-column: 2; grid-row: 1; text-align: right; }
+table.sets.cards .moves { grid-column: 1; grid-row: 3; min-width: 0; color: var(--ink-dim); }
+table.sets.cards .spe { grid-column: 2; grid-row: 2 / 4; align-self: center; }
+table.sets.cards .spe::before { content: "Speed "; font-weight: 400; color: var(--ink-dim); }
 
 /* ── your team ── */
 .left-col { display: grid; gap: 14px; min-width: 0; }

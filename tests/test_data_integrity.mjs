@@ -9,7 +9,7 @@
 //     the early Lady, id 16 — the Cooltrainer GILLIAN 227 is missing there)
 // Skips cleanly (exit 0, says so) if the decomp or the CSV folder is absent.
 import { readFileSync, existsSync } from "node:fs";
-import { MONS, MOVES, TRAINERS, STYLE_THRESHOLDS, STYLE_TEXTS, STAT_TEXTS, MOVE_POINT_TYPES } from "../data/dome_data.mjs";
+import { MONS, MOVES, TRAINERS, STYLE_THRESHOLDS, STYLE_TEXTS, STAT_TEXTS, MOVE_POINT_TYPES, DOME_BRAIN, NATURE_STAT_TABLE } from "../data/dome_data.mjs";
 import { check, finish } from "./util.mjs";
 
 const DECOMP = new URL("../../pokeemerald/", import.meta.url);
@@ -21,6 +21,19 @@ check(STYLE_THRESHOLDS.length === 31 && STYLE_TEXTS.length === 32 && STAT_TEXTS.
 check(STYLE_TEXTS[27] === "Uses a well-balanced mix of moves.", "style 27 text");
 check(STAT_TEXTS[42] === "Raises POKéMON in a well-balanced way.", "balanced text");
 check(STYLE_THRESHOLDS[27].every((x) => x === 0), "BALANCED has no thresholds");
+
+// Tucker's Level 50 Speeds, worked by hand from frontier_util.c:
+//   Gold Latias 110 base, IV 31, 6 EV, Modest: (220+31+1)*50/100+5 = 131
+//   Gold Metagross 70, IV 31, 0 EV, Brave: (171*50/100+5)=90 -> 90*0.9 = 81
+//   Silver Charizard 100, IV 20, 152 EV (38), Quiet: 258*50/100+5 = 134 -> 120
+const brainSpeeds = (k) => DOME_BRAIN[k].map((m) => `${m.species.slice(8)} ${m.speed}`).join();
+check(brainSpeeds("silver") === "SWAMPERT 67,SALAMENCE 127,CHARIZARD 120", `silver speeds ${brainSpeeds("silver")}`);
+check(brainSpeeds("gold") === "SWAMPERT 72,METAGROSS 81,LATIAS 131", `gold speeds ${brainSpeeds("gold")}`);
+check(DOME_BRAIN.silver.every((m) => m.iv === 20) && DOME_BRAIN.gold.every((m) => m.iv === 31), "brain IVs 20 / 31");
+// a few regular sets by hand (IV 3)
+//   Sunkern 1: base 30, no Speed EV, Relaxed: (63*50/100+5)=36 -> 32
+//   Suicune 6: base 85, HP/Def/SpDef, Modest: 173*50/100+5 = 91
+check(MONS[0].speed === 32 && MONS[881].speed === 91, "hand-checked set speeds");
 
 if (existsSync(DECOMP)) {
   const src = readFileSync(new URL("src/data/battle_frontier/battle_frontier_mons.h", DECOMP), "utf8");
@@ -47,6 +60,30 @@ if (existsSync(DECOMP)) {
     const t = line.match(/\.type\s*=\s*(TYPE_\w+)/); if (t && cur) seen[cur].type = t[1];
   }
   for (const [c, m] of Object.entries(MOVES)) check(seen[c]?.power === m.power && seen[c]?.type === m.type, `move ${c}`);
+
+  // Speed: base Speed re-read line by line, recomputed with a plain restatement.
+  // The IV-3 premise is the unfixed call in CreateDomeOpponentMon.
+  const domeC = readFileSync(new URL("src/battle_dome.c", DECOMP), "utf8");
+  check(/#else\s*\n\s*u8 fixedIv = GetDomeTrainerMonIvs\(tournamentTrainerId\);/.test(domeC), "IV-3 bug call present");
+  const baseSpe = {};
+  let sp = null;
+  for (const line of readFileSync(new URL("src/data/pokemon/species_info.h", DECOMP), "utf8").split("\n")) {
+    const h = line.match(/^\s*\[(SPECIES_\w+)\]\s*=/);
+    if (h) { sp = h[1]; continue; }
+    const b = line.match(/\.baseSpeed\s*=\s*(\d+)/); if (b && sp && baseSpe[sp] == null) baseSpe[sp] = +b[1];
+  }
+  const spe = (species, iv, ev, nature) => {
+    const raw = Math.trunc((2 * baseSpe[species] + iv + Math.trunc(ev / 4)) / 2) + 5;   // level 50: *50/100
+    const f = NATURE_STAT_TABLE[nature][2];
+    return f === 0 ? raw : Math.trunc(raw * (100 + 10 * f) / 100);
+  };
+  MONS.forEach((m) => {
+    const n = [0, 1, 2, 3, 4, 5].filter((b) => m.evSpread & (1 << b)).length;
+    const ev = m.evSpread & 8 ? Math.min(255, Math.trunc(510 / n)) : 0;   // n is 2 or 3 in this data
+    check(spe(m.species, 3, ev, m.nature) === m.speed, `mon ${m.i} speed ${m.speed}`);
+  });
+  for (const m of [...DOME_BRAIN.silver, ...DOME_BRAIN.gold])
+    check(spe(m.species, m.iv, m.evs[3], m.nature) === m.speed, `brain ${m.species} speed`);
 } else console.log("(decomp not found — decomp re-parse skipped)");
 
 if (existsSync(CSVDIR)) {

@@ -33,6 +33,15 @@ letters, then Enter (or arrow keys / click).
 The result shows the count after each clue, and for each species which sets are
 still possible and in how many teams.
 
+**Speed.** Each set shows its exact Level 50 Speed. Regular Dome opponents all
+have IVs of 3: `CreateDomeOpponentMon` passes the bracket slot (0-15) where it
+should pass the trainer id (`src/battle_dome.c:2591`, marked BUG), and every id
+<= 99 gets 3. The Speeds are computed once in `tools/gen_data.mjs` (CALC_STAT +
+ModifyStatByNature, `src/pokemon.c`), not in the page. The **Tucker** panel lists
+his Silver and Gold teams with their Speeds. His Pokémon come from
+`sFrontierBrainsMons` (`src/frontier_util.c`) with IVs 20 (Silver) and 31 (Gold),
+so the bug doesn't apply to him.
+
 ### Your team and "Who they bring"
 
 Paste your team (a Showdown export, or just the 3 species one per line), give it

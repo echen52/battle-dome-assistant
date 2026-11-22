@@ -67,6 +67,17 @@
     </fieldset>
     <div id="winRows"></div>
   </section>
+
+  <section class="panel" aria-labelledby="tuckerHead">
+    <div class="tucker-head">
+      <h2 id="tuckerHead">Tucker</h2>
+      <div class="seg" role="radiogroup" aria-labelledby="tuckerHead">
+        <label><input type="radio" name="symbol" value="silver" checked /> Silver</label>
+        <label><input type="radio" name="symbol" value="gold" /> Gold</label>
+      </div>
+    </div>
+    <div class="table-wrap"><table class="sets cards" id="tuckerTable"></table></div>
+  </section>
   </div>
 
   <section class="panel" aria-labelledby="resHead" aria-live="polite">
@@ -87,7 +98,7 @@
 </main>
 
 <footer class="app-footer">
-  Rules ported from the pokeemerald decomp (a3c551f). Opponents' Pokémon in the Dome fight with IVs of 3.
+  Rules ported from the pokeemerald decomp (a3c551f). Opponents' Pokémon in the Dome fight with IVs of 3 (a game bug), so their Speed is exact. Tucker's IVs are 20 (Silver) and 31 (Gold).
 </footer>
 
 <script type="module" src="app.mjs"></script>

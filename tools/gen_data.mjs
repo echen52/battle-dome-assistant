@@ -107,10 +107,13 @@ if (STAT_TEXTS.length !== 43 || STAT_TEXTS.includes(undefined)) throw new Error(
 const speciesIds = defines(read("include/constants/species.h"), "SPECIES_");
 const speciesNames = textTable(read("src/data/text/species_names.h"), "SPECIES_");
 const SPECIES = {};
+const BASE_SPEED = {};
 for (const [c, body] of blocks(read("src/data/pokemon/species_info.h"), "SPECIES_")) {
   const t = body.match(/\.types\s*=\s*\{\s*(TYPE_\w+)\s*,\s*(TYPE_\w+)\s*\}/);
   const a = body.match(/\.abilities\s*=\s*\{\s*(ABILITY_\w+)\s*,\s*(ABILITY_\w+)\s*\}/);
   if (!t || !a) continue;
+  const sp = body.match(/\.baseSpeed\s*=\s*(\d+)/);
+  if (sp) BASE_SPEED[c] = +sp[1];
   SPECIES[c] = { id: speciesIds[c], name: titleCase(speciesNames[c]), types: [t[1], t[2]], abilities: [a[1], a[2]] };
 }
 
@@ -127,6 +130,34 @@ const NATURE_STAT_TABLE = {};
 for (const m of arrayBody(read("src/pokemon.c"), "gNatureStatTable[NUM_NATURES]").matchAll(/\[(NATURE_\w+)\]\s*=\s*\{([^}]*)\}/g))
   NATURE_STAT_TABLE[m[1]] = m[2].split(",").map((x) => parseInt(x.trim(), 10));
 if (Object.keys(NATURE_STAT_TABLE).length !== 25) throw new Error("nature table");
+
+// ── Speed at Level 50 ──
+// CALC_STAT (src/pokemon.c:2814): ((2*base + iv + ev/4) * level)/100 + 5, then
+// ModifyStatByNature (src/pokemon.c:5864): *110/100 or *90/100, integer division.
+// Speed is nature column 2 (gNatureStatTable is Atk, Def, Speed, SpAtk, SpDef).
+const LEVEL = 50;
+function speedStat(species, iv, ev, nature) {
+  const base = BASE_SPEED[species];
+  if (base == null) throw new Error(`no baseSpeed for ${species}`);
+  let n = Math.floor(((2 * base + iv + Math.floor(ev / 4)) * LEVEL) / 100) + 5;
+  const mod = NATURE_STAT_TABLE[nature][2];
+  if (mod === 1) n = Math.floor((n * 110) / 100);
+  else if (mod === -1) n = Math.floor((n * 90) / 100);
+  return n;
+}
+// Regular Dome opponents: IV 3 in every stat. CreateDomeOpponentMon passes the
+// bracket slot (0-15) to GetDomeTrainerMonIvs instead of the trainer id
+// (src/battle_dome.c:2591, marked BUG), and every id <= 99 gets 3 (:2944).
+const DOME_IV = 3;
+// CreateMonWithEVSpreadNatureOTID (src/pokemon.c:2584): each flagged stat gets
+// MAX_TOTAL_EVS / count, stored through SET8 into a u8 (510/1 would keep 254).
+const MAX_TOTAL_EVS = defines(read("include/constants/pokemon.h"), "MAX_TOTAL_EVS").MAX_TOTAL_EVS;
+if (MAX_TOTAL_EVS !== 510) throw new Error("MAX_TOTAL_EVS");
+function spreadSpeedEv(evSpread) {
+  let count = 0;
+  for (let b = 0; b < 6; b++) if (evSpread & (1 << b)) count++;
+  return evSpread & (1 << 3) ? Math.floor(MAX_TOTAL_EVS / count) & 0xff : 0;
+}
 
 // ── items (display names) ──
 const ITEM_NAMES = {};
@@ -151,12 +182,29 @@ const MONS = monsRaw.mons.map((m, i) => {
     nature: m.nature, evSpread: m.evSpreadFlags.reduce((acc, f) => acc | (1 << EV_BIT[f]), 0),
     openOnly: m.aboveHighTier,
   };
-});
+}).map((m) => ({ ...m, speed: speedStat(m.species, DOME_IV, spreadSpeedEv(m.evSpread), m.nature) }));
 const monIndex = Object.fromEntries(monsRaw.mons.map((m) => [m.constant, m.index]));
 const TRAINERS = trainersRaw.trainers.map((t) => ({
   id: t.id, name: t.name, cls: t.facilityClass, pool: t.pool.map((c) => monIndex[c]),
 }));
 if (TRAINERS.length !== 300) throw new Error("trainers");
+
+// ── Tucker: sFrontierBrainsMons[FRONTIER_FACILITY_DOME] (src/frontier_util.c) ──
+// Built by CreateFrontierBrainPokemon (frontier_util.c:2497) with the table's
+// own fixedIV and EVs, so the IV-3 bug above doesn't touch him.
+const fu = read("src/frontier_util.c");
+const domeBrainText = fu.slice(fu.indexOf("[FRONTIER_FACILITY_DOME] ="), fu.indexOf("[FRONTIER_FACILITY_PALACE] ="));
+const MAX_IV = defines(read("include/constants/pokemon.h"), "MAX_PER_STAT_IVS").MAX_PER_STAT_IVS;
+const brainMons = [...domeBrainText.matchAll(/\{\s*\.species\s*=\s*(SPECIES_\w+),\s*\.heldItem\s*=\s*(ITEM_\w+),\s*\.fixedIV\s*=\s*(\w+),\s*\.nature\s*=\s*(NATURE_\w+),\s*\.evs\s*=\s*\{([^}]*)\},\s*\.moves\s*=\s*\{([^}]*)\},\s*\}/g)]
+  .map((m) => {
+    const iv = m[3] === "MAX_PER_STAT_IVS" ? MAX_IV : +m[3];
+    const evs = m[5].split(",").map((x) => +x.trim());
+    const moves = m[6].split(",").map((x) => x.trim());
+    for (const mv of moves) if (!MOVES[mv]) throw new Error(`unknown brain move ${mv}`);
+    return { species: m[1], item: m[2], iv, nature: m[4], evs, moves, speed: speedStat(m[1], iv, evs[3], m[4]) };
+  });
+if (brainMons.length !== 6 || !(MAX_IV === 31)) throw new Error(`dome brain mons: ${brainMons.length}`);
+const DOME_BRAIN = { silver: brainMons.slice(0, 3), gold: brainMons.slice(3) };
 
 const HIGH_TIER = defines(read("include/constants/battle_frontier_mons.h"), "FRONTIER_MONS_HIGH_TIER").FRONTIER_MONS_HIGH_TIER;
 if (HIGH_TIER !== 849) throw new Error(`FRONTIER_MONS_HIGH_TIER = ${HIGH_TIER}`);
@@ -175,6 +223,8 @@ let out = `// ── data/dome_data.mjs ─────────────�
 //   natures:   src/pokemon.c gNatureStatTable (Atk, Def, Speed, SpAtk, SpDef)
 //   items:     src/data/items.h (names)
 //   sets/pools: ../tower_extract/frontier_mons.json, trainers.json (same commit)
+//   speed:     Level 50, IV 3 (src/battle_dome.c:2591 BUG), CALC_STAT + ModifyStatByNature (src/pokemon.c)
+//   Tucker:    src/frontier_util.c sFrontierBrainsMons[FRONTIER_FACILITY_DOME]
 // Re-verified by tests/test_data_integrity.mjs.
 
 export const DECOMP_COMMIT = ${J(PIN)};
@@ -190,9 +240,15 @@ export const TYPE_CHART = ${J(TYPE_CHART)};
 export const ITEM_NAMES = ${J(ITEM_NAMES)};
 export const SPECIES = {\n${Object.entries(SPECIES).map(([k, v]) => `  ${k}: ${J(v)},`).join("\n")}\n};
 export const MOVES = {\n${Object.entries(MOVES).map(([k, v]) => `  ${k}: ${J(v)},`).join("\n")}\n};
+// speed: Level 50 Speed stat with IV 3
 // evSpread: bit 0 HP, 1 Atk, 2 Def, 3 Speed, 4 SpAtk, 5 SpDef (include/constants/battle_frontier.h:119-124)
 export const MONS = [\n${MONS.map((m) => `  ${J(m)},`).join("\n")}\n];
 export const TRAINERS = [\n${TRAINERS.map((t) => `  ${J(t)},`).join("\n")}\n];
+// Tucker, Level 50. evs: HP, Atk, Def, Speed, SpAtk, SpDef. speed = in-battle stat.
+export const DOME_BRAIN = {
+  silver: [\n${DOME_BRAIN.silver.map((m) => `    ${J(m)},`).join("\n")}\n  ],
+  gold: [\n${DOME_BRAIN.gold.map((m) => `    ${J(m)},`).join("\n")}\n  ],
+};
 `;
 writeFileSync(new URL("../data/dome_data.mjs", import.meta.url), out);
 console.log(`dome_data.mjs: ${Object.keys(MOVES).length} moves, ${Object.keys(SPECIES).length} species, ${MONS.length} sets, ${TRAINERS.length} trainers, ${STYLE_THRESHOLDS.length} thresholds, ${STAT_TEXTS.length} stat texts`);
