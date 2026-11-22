@@ -33,6 +33,31 @@ letters, then Enter (or arrow keys / click).
 The result shows the count after each clue, and for each species which sets are
 still possible and in how many teams.
 
+### Your team and "Who they bring"
+
+Paste your team (a Showdown export, or just the 3 species one per line), give it
+a name and **Save**. The **Saved** dropdown switches between saved teams and ✕
+deletes one; the team in use comes back on your next visit, and Reset keeps it.
+Storage: `localStorage["domeAssistant.savedTeams"]` (all echen52 Pages sites
+share one origin, hence the prefix).
+
+For each pair of yours, the table shows which 2 the opponent brings and who
+leads, averaged over the teams still possible. Enter the opponent's Pokémon
+**top to bottom as on the card**: that order is their party order, and the lead
+depends on it. The game's rule (`src/battle_dome.c:2615-2933`):
+
+- Decided after you pick your 2. Each of their Pokémon is scored on how its
+  damaging moves hit your 2 **and your empty third slot, which counts as a
+  pure Normal type** (the party is cut to your 2, `script_pokemon_util.c:209`;
+  `SPECIES_NONE` is Normal/Normal).
+- A coin flip: "good" mode (neutral 2, 2x 4, 4x 8) brings the 2 that hit you
+  hardest; "bad" mode (immune 8, 1/4 4, 1/2 2, 2x -2, 4x -4) the 2 that hit
+  you worst. Ties for second are a coin flip; a three-way tie tries the other
+  mode, then picks at random.
+- Lead: the earlier of the two on the card 40%, the later 60%.
+- Quirks kept: your species' first ability is used, and Levitate makes Ground
+  count as neutral; Wonder Guard makes everything neutral (a bug).
+
 ## Where the rules come from
 
 All from pokeemerald `a3c551f`, ported line by line (file:line comments in `engine.mjs`):
@@ -63,7 +88,7 @@ separates sets. Dome opponents fight with IVs of 3 (`battle_dome.c:2591`).
 ## Tests
 
 ```
-node run_suite.mjs          # 6 guards, ~3 s
+node run_suite.mjs          # 8 guards, ~10 s
 node tools/check_ui.mjs     # headless browser check (borrows playwright-core from ../battle_arena_assistant)
 node tools/gen_data.mjs     # regenerate data/dome_data.mjs from ../pokeemerald + ../tower_extract
 ```

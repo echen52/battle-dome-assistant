@@ -8,6 +8,8 @@ const SUITE = [
   ["engine", "tests/test_engine.mjs", "team generation rules, true team survives its own clues"],
   ["stat line", "tests/test_stat_line.mjs", "literal port vs a plain restatement, incl. the 3-good-stats quirk"],
   ["winning move", "tests/test_winning_move.mjs", "canShow vs a literal GetWinningMove port: sound and exact"],
+  ["2-of-3 pick", "tests/test_pick.mjs", "opponentPick vs a literal randomly-driven port of the selection + lead code"],
+  ["team paste", "tests/test_team.mjs", "Showdown / plain-name team parsing"],
   ["python equivalence", "tests/test_python_equivalence.mjs", "same answers as the frozen Python Dome Assistant"],
   ["contrast", "tools/check_contrast.mjs", "WCAG pairs in styles.css"],
 ];

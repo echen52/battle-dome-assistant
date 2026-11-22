@@ -15,6 +15,23 @@
 </header>
 
 <main class="layout">
+  <div class="left-col">
+  <section class="panel" id="teamPanel" aria-labelledby="teamHead">
+    <h2 id="teamHead">Your team</h2>
+    <div class="row">
+      <label for="savedTeams" class="row-label">Saved</label>
+      <select id="savedTeams"><option value="">— Select a saved team —</option></select>
+      <button id="deleteTeam" class="btn btn-small" type="button" title="Delete the selected saved team" aria-label="Delete the selected saved team">✕</button>
+    </div>
+    <textarea id="teamText" rows="4" spellcheck="false" aria-label="Your team"
+      placeholder="Paste your team (Showdown export), or type your 3 Pokémon, one per line"></textarea>
+    <div class="row">
+      <input type="text" id="teamName" placeholder="Name to save as" aria-label="Name to save as" />
+      <button id="saveTeam" class="btn" type="button">Save</button>
+    </div>
+    <p id="teamMsg" class="note"></p>
+  </section>
+
   <section class="panel" aria-labelledby="cardHead">
     <h2 id="cardHead">Trainer card</h2>
 
@@ -24,7 +41,7 @@
     </div>
 
     <fieldset class="field">
-      <legend>Pokémon on the card</legend>
+      <legend>Pokémon on the card <span class="dim">(top to bottom)</span></legend>
       <div class="three" id="speciesCombos"></div>
     </fieldset>
 
@@ -50,11 +67,17 @@
     </fieldset>
     <div id="winRows"></div>
   </section>
+  </div>
 
   <section class="panel" aria-labelledby="resHead" aria-live="polite">
     <h2 id="resHead">Possible teams</h2>
     <div id="steps" class="steps"></div>
     <div id="message" class="message" hidden></div>
+    <div id="pickWrap" hidden>
+      <h3 class="sub-head">Who they bring</h3>
+      <p class="note" id="pickNote"></p>
+      <div class="table-wrap"><table class="pick" id="pickTable"></table></div>
+    </div>
     <div id="breakdown"></div>
     <details id="teamListWrap" hidden>
       <summary id="teamListSummary">All teams</summary>

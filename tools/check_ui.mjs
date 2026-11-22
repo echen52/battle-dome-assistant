@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MONS, TRAINERS, SPECIES, STYLE_TEXTS, STAT_TEXTS, MOVES } from "../data/dome_data.mjs";
-import { narrow, battleStyle, statLine, teamMoves, canShow } from "../engine.mjs";
+import { narrow, battleStyle, statLine, teamMoves, canShow, opponentPick } from "../engine.mjs";
 import { mulberry32, randomTeam, LATE_TRAINERS } from "../tests/util.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -86,6 +86,61 @@ const setNames = await page.$$eval("#breakdown .set-name", (tds) => tds.map((td)
 for (const i of cas.team) check(setNames.includes(`${SPECIES[MONS[i].species].name} ${MONS[i].ord}`), `true set ${MONS[i].label} not listed`);
 check((await page.inputValue("#styleInput")).startsWith(STYLE_TEXTS[cas.clues.style]), "style text shown");
 if (shotsDir) await page.screenshot({ path: join(shotsDir, "desktop.png"), fullPage: true });
+
+// ── your team: paste -> "Who they bring" matches the engine ──
+const TEAM_A = "Salamence @ Choice Band\nAbility: Intimidate\n- Earthquake\n\nSuicune @ Leftovers\n- Surf\n\nSnorlax @ Chesto Berry\n- Body Slam";
+const TEAM_B = "Metagross\nLatios\nSwampert";
+const sp = (t) => t.split(/\n/).filter((l) => l && !l.startsWith("-") && !l.includes(":")).map((l) => l.replace(/ @.*/, "").toUpperCase());
+function expectedRows(yourNames) {
+  const you = yourNames.map((n) => Object.keys(SPECIES).find((k) => SPECIES[k].name.toUpperCase() === n));
+  const n = cas.r.teams.length;
+  return [[0, 1], [0, 2], [1, 2]].map(([a, b]) => {
+    const pair = [you[a], you[b]];
+    const agg = new Map(), lead = [0, 0, 0];
+    for (const tm of cas.r.teams) {
+      const order = cas.clues.species.map((s) => tm.find((i) => MONS[i].species === s));
+      const r = opponentPick(order, pair);
+      for (const [k, p] of r.pairs) agg.set(k, (agg.get(k) ?? 0) + p / n);
+      r.lead.forEach((p, s) => { lead[s] += p / n; });
+    }
+    const top = [...agg.entries()].sort((x, y) => y[1] - x[1])[0];
+    return { you: pair.map((s) => SPECIES[s].name).join(" + "), topPct: Math.round(top[1] * 100) };
+  });
+}
+async function pageRows() {
+  return page.$$eval("#pickTable tbody tr", (trs) => trs.map((tr) => ({
+    you: tr.children[0].textContent, topPct: parseInt(tr.children[1].querySelector("b").textContent, 10) })));
+}
+await page.fill("#teamText", TEAM_A);
+check((await page.textContent("#teamMsg")).includes("Salamence · Suicune · Snorlax"), "team A parsed");
+let rows = await pageRows();
+check(JSON.stringify(rows) === JSON.stringify(expectedRows(sp(TEAM_A))), `pick rows A ${JSON.stringify(rows)} vs ${JSON.stringify(expectedRows(sp(TEAM_A)))}`);
+await page.fill("#teamName", "Team A"); await page.click("#saveTeam");
+await page.fill("#teamText", TEAM_B);
+await page.fill("#teamName", "Team B"); await page.click("#saveTeam");
+rows = await pageRows();
+check(JSON.stringify(rows) === JSON.stringify(expectedRows(sp(TEAM_B))), "pick rows B");
+// toggle saved teams
+await page.selectOption("#savedTeams", "Team A");
+check((await page.inputValue("#teamText")) === TEAM_A, "saved team A loads its text");
+check(JSON.stringify(await pageRows()) === JSON.stringify(expectedRows(sp(TEAM_A))), "toggling back to A updates the table");
+const savedNames = await page.$$eval("#savedTeams option", (os) => os.map((o) => o.value).filter(Boolean));
+check(savedNames.join() === "Team A,Team B", `saved list ${savedNames}`);
+// Reset keeps your team
+await page.click("#resetBtn");
+check((await page.inputValue("#teamText")) === TEAM_A && (await page.inputValue("#savedTeams")) === "Team A", "Reset keeps your team");
+// a reload restores the team in use and the saved list
+await page.reload();
+check((await page.inputValue("#teamText")) === TEAM_A && (await page.inputValue("#savedTeams")) === "Team A", "reload restores the team in use");
+await page.selectOption("#savedTeams", "Team B");
+await page.click("#deleteTeam");
+check((await page.$$eval("#savedTeams option", (os) => os.map((o) => o.value).filter(Boolean))).join() === "Team A", "delete removes Team B");
+await page.selectOption("#savedTeams", "Team A");
+// re-enter the case for the checks below
+await enterTeam();
+await pick("#styleInput", STYLE_TEXTS[cas.clues.style]);
+await pick("#statInput", STAT_TEXTS[cas.clues.stat]);
+if (shotsDir) await page.screenshot({ path: join(shotsDir, "desktop_team.png"), fullPage: true });
 
 // partial typing narrows the list (starts-with first)
 await page.click("#trainerInput");

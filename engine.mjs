@@ -334,3 +334,107 @@ export function setBreakdown(teams, species) {
     return { species: sp, sets: [...counts.entries()].sort((a, b) => a[0] - b[0]).map(([i, n]) => ({ i, teams: n })) };
   });
 }
+
+// ── which 2 of the 3 they bring, and who leads ─────────────────────────────
+// Decided when the battle starts, after you picked your 2 (the pre-battle
+// script runs dome_reduceparty before the battle room's dome_initopponentparty,
+// data/maps/BattleFrontier_BattleDome{PreBattleRoom,BattleRoom}/scripts.inc).
+// ReducePlayerPartyToSelectedMons (src/script_pokemon_util.c:209) zeroes the
+// rest of the party, so the opponent's scoring loop over gPlayerParty[0..2]
+// also scores an EMPTY slot 3: SPECIES_NONE, whose gSpeciesInfo entry is {0}
+// = Normal/Normal, ability 0 (src/data/pokemon/species_info.h:37).
+
+const TYPE_x0 = 0, TYPE_x0_25 = 5, TYPE_x0_50 = 10, TYPE_x1 = 20, TYPE_x2 = 40, TYPE_x4 = 80; // battle_dome.c:2936-2941
+const EMPTY_SLOT = { types: ["TYPE_NORMAL", "TYPE_NORMAL"], abilities: ["ABILITY_NONE", "ABILITY_NONE"] };
+export const PICK_MODES = ["GOOD", "BAD"];
+
+/** GetTypeEffectivenessPoints, src/battle_dome.c:2801-2933, modes GOOD / BAD.
+ *  targetSpecies null = the empty party slot. Bugs kept: Levitate vs Ground
+ *  sets 8 but doesn't return (GOOD: stays x1 -> 2; BAD: 8 hits the default
+ *  -> 0); Wonder Guard compares against TYPE_x2 (40), which the chart never
+ *  holds, so every multiplier is skipped. */
+export function effectivenessPoints(move, targetSpecies, mode) {
+  if (move === "MOVE_NONE" || MOVES[move].power === 0) return 0;
+  const info = targetSpecies ? SPECIES[targetSpecies] : EMPTY_SLOT;
+  const [defType1, defType2] = info.types;
+  const defAbility = info.abilities[0];
+  const moveType = MOVES[move].type;
+  let typePower = TYPE_x1;
+  if (defAbility === "ABILITY_LEVITATE" && moveType === "TYPE_GROUND") {
+    if (mode === "BAD") typePower = 8;
+  } else {
+    for (const [atk, def, mul] of TYPE_CHART) {
+      if (atk === "TYPE_ENDTABLE") break;
+      if (atk === "TYPE_FORESIGHT") continue;
+      if (atk === moveType) {
+        const ok = defAbility !== "ABILITY_WONDER_GUARD" || mul === TYPE_x2;
+        if (def === defType1 && ok) typePower = Math.trunc((typePower * mul) / 10);
+        if (def === defType2 && defType1 !== defType2 && ok) typePower = Math.trunc((typePower * mul) / 10);
+      }
+    }
+  }
+  if (mode === "GOOD") return { [TYPE_x1]: 2, [TYPE_x2]: 4, [TYPE_x4]: 8 }[typePower] ?? 0;
+  return { [TYPE_x0]: 8, [TYPE_x0_25]: 4, [TYPE_x0_50]: 2, [TYPE_x2]: -2, [TYPE_x4]: -4 }[typePower] ?? 0;
+}
+
+/** SelectOpponentMons_Good/_Bad points (battle_dome.c:2679-2733): each of the
+ *  opponent's 3 sets, summed over its 4 moves x your 3 party slots. */
+export function pickPoints(teamInCardOrder, yourTwo, mode) {
+  const targets = [yourTwo[0], yourTwo[1], null];
+  return teamInCardOrder.map((i) => MONS[i].moves.reduce((s, mv) =>
+    s + targets.reduce((t, sp) => t + effectivenessPoints(mv, sp, mode), 0), 0));
+}
+
+/** SelectOpponentMonsFromParty (battle_dome.c:2736-2797) as a distribution:
+ *  Map(bitmask -> probability). Bitmask 0 = "all three tied, not allowed to
+ *  pick at random" (the caller then tries the other mode). Each coin flip
+ *  (Random() & 1 on a tie) is enumerated. */
+export function selectFromParty(points, allowRandom) {
+  const out = new Map();
+  const add = (k, p) => out.set(k, (out.get(k) ?? 0) + p);
+  if (points[0] === points[1] && points[0] === points[2]) {
+    if (!allowRandom) return new Map([[0, 1]]);
+    // draws Random() & 3, rejecting 3 and repeats: each pair 1/3
+    for (const k of [0b011, 0b101, 0b110]) add(k, 1 / 3);
+    return out;
+  }
+  const walk = (p, pos, i, j, prob) => {
+    if (i === 2) { add((1 << pos[0]) | (1 << pos[1]), prob); return; }
+    const [ni, nj] = j + 1 < 3 ? [i, j + 1] : [i + 1, i + 2];
+    p = p.slice(); pos = pos.slice();
+    if (p[i] < p[j]) { [p[i], p[j]] = [p[j], p[i]]; [pos[i], pos[j]] = [pos[j], pos[i]]; }
+    if (p[i] === p[j]) {
+      const sp = p.slice(), spos = pos.slice();
+      [sp[i], sp[j]] = [sp[j], sp[i]]; [spos[i], spos[j]] = [spos[j], spos[i]];
+      walk(sp, spos, ni, nj, prob / 2);
+      walk(p, pos, ni, nj, prob / 2);
+    } else walk(p, pos, ni, nj, prob);
+  };
+  walk(points, [0, 1, 2], 0, 1, 1);
+  return out;
+}
+
+/** GetDomeTrainerSelectedMons (battle_dome.c:2651-2668) + the lead from
+ *  CreateDomeOpponentMons (:2615-2648): Random() % 10 > 5 (4 in 10) creates
+ *  from the front, so the earlier card slot leads; otherwise (6 in 10) the
+ *  later one does. teamInCardOrder: set indices, card top to bottom.
+ *  Returns { pairs: Map(bitmask -> p), lead: [p slot0, p slot1, p slot2],
+ *            byMode: { GOOD: Map, BAD: Map } } */
+export function opponentPick(teamInCardOrder, yourTwo) {
+  const pts = { GOOD: pickPoints(teamInCardOrder, yourTwo, "GOOD"), BAD: pickPoints(teamInCardOrder, yourTwo, "BAD") };
+  const firstThen = (a, b) => {
+    const first = selectFromParty(pts[a], false);
+    if (!first.has(0)) return first;
+    return selectFromParty(pts[b], true);
+  };
+  const byMode = { GOOD: firstThen("GOOD", "BAD"), BAD: firstThen("BAD", "GOOD") };
+  const pairs = new Map();
+  for (const m of PICK_MODES) for (const [k, p] of byMode[m]) pairs.set(k, (pairs.get(k) ?? 0) + p / 2);
+  const lead = [0, 0, 0];
+  for (const [k, p] of pairs) {
+    const slots = [0, 1, 2].filter((s) => k & (1 << s));
+    lead[slots[0]] += p * 0.4;
+    lead[slots[1]] += p * 0.6;
+  }
+  return { pairs, lead, byMode, points: pts };
+}

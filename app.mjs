@@ -1,8 +1,9 @@
 // ── app.mjs — page wiring. All rules live in engine.mjs. ───────────────────
 import { MONS, TRAINERS, MOVES, SPECIES, ITEM_NAMES, STYLE_TEXTS, STAT_TEXTS } from "./data/dome_data.mjs";
 import {
-  trainerSets, trainerSpecies, candidateTeams, battleStyle, statLine, winsConsistent, setBreakdown, teamMoves,
+  trainerSets, trainerSpecies, candidateTeams, battleStyle, statLine, winsConsistent, setBreakdown, teamMoves, opponentPick,
 } from "./engine.mjs";
+import { parseTeam } from "./team.mjs";
 
 const LEVEL = 50;
 // Styles a card can actually show: 0-27 minus the two the threshold order makes
@@ -106,6 +107,34 @@ function combo({ id, ariaLabel, placeholder, options, value, onPick }) {
 // ── state ──
 const blank = () => ({ trainerId: null, species: [null, null, null], style: null, stat: null, wins: [] });
 let state = blank();
+let you = null;            // your 3 species (SPECIES_*), or null — kept across Reset
+
+// ── your team: saved teams, as battle-palace-solver does them ──
+// One localStorage key holding { name: pasted text }. Every echen52 Pages site
+// shares one origin, so the key carries this site's prefix.
+const STORE = "domeAssistant.savedTeams";
+const LAST = "domeAssistant.lastTeam";     // the team in use, restored on the next visit
+const loadSaved = () => { try { return JSON.parse(localStorage.getItem(STORE) || "{}"); } catch { return {}; } };
+const storeSaved = (m) => { try { localStorage.setItem(STORE, JSON.stringify(m)); } catch { /* private mode: not kept */ } };
+function refreshSaved(select = "") {
+  const m = loadSaved();
+  $("savedTeams").replaceChildren(el("option", { value: "", textContent: "— Select a saved team —" }),
+    ...Object.keys(m).sort().map((k) => el("option", { value: k, textContent: k, selected: k === select })));
+}
+function useTeamText(text, { quiet = false } = {}) {
+  const r = parseTeam(text);
+  if (r.error) {
+    you = null;
+    $("teamMsg").textContent = quiet && !text.trim() ? "" : r.error;
+    $("teamMsg").className = "note err";
+  } else {
+    you = r.species;
+    $("teamMsg").textContent = you.map(speciesName).join(" · ");
+    $("teamMsg").className = "note ok";
+    try { localStorage.setItem(LAST, text); } catch { /* not kept */ }
+  }
+  update();
+}
 
 // ── the narrowing, with "what if" counts for the style / stat pickers ──
 function compute() {
@@ -265,12 +294,53 @@ function renderResults(res) {
     el("li", { textContent: t.map(setLabel).join(" · ") })));
 }
 
+const pct = (p) => (p > 0 && p < 0.005 ? "<1%" : `${Math.round(p * 100)}%`);
+
+/** For each pair of yours: which 2 they bring and who leads, averaged over
+ *  the teams still possible (each equally likely — the plain-list ranking). */
+function renderPick(res) {
+  const wrap = $("pickWrap");
+  if (!res || !res.teams.length) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  if (!you) {
+    $("pickNote").textContent = "Add your team above to see which two they bring against each pair of yours.";
+    $("pickTable").replaceChildren();
+    return;
+  }
+  const n = res.teams.length;
+  $("pickNote").textContent = n === 1
+    ? "For the one team that fits. The game flips a coin between picking what hits you hardest and what hits you worst."
+    : `Averaged over the ${n} teams still possible. The game flips a coin between picking what hits you hardest and what hits you worst.`;
+  const cardOrder = (t) => state.species.map((sp) => t.find((i) => MONS[i].species === sp));
+  const myPairs = [[0, 1], [0, 2], [1, 2]].map(([a, b]) => [you[a], you[b]]);
+  const head = el("thead", {}, el("tr", {}, ...["You bring", "They bring", "Leads"].map((h) => el("th", { textContent: h }))));
+  const body = el("tbody");
+  for (const pair of myPairs) {
+    const pairP = new Map(), leadP = [0, 0, 0];
+    for (const t of res.teams) {
+      const r = opponentPick(cardOrder(t), pair);
+      for (const [k, p] of r.pairs) pairP.set(k, (pairP.get(k) ?? 0) + p / n);
+      r.lead.forEach((p, s) => { leadP[s] += p / n; });
+    }
+    const pairs = [...pairP.entries()].filter(([, p]) => p > 1e-12).sort((x, y) => y[1] - x[1]);
+    const bring = el("td", {}, ...pairs.map(([k, p]) => el("div", { className: "pick-line" },
+      el("b", { textContent: pct(p) }), " ",
+      [0, 1, 2].filter((s) => k & (1 << s)).map((s) => speciesName(state.species[s])).join(" + "))));
+    const leads = el("td", { className: "lead-cell" }, ...[0, 1, 2].filter((s) => leadP[s] > 1e-12)
+      .sort((x, y) => leadP[y] - leadP[x])
+      .map((s) => el("div", { className: "pick-line" }, el("b", { textContent: pct(leadP[s]) }), " " + speciesName(state.species[s]))));
+    body.append(el("tr", {}, el("td", { className: "you-cell", textContent: pair.map(speciesName).join(" + ") }), bring, leads));
+  }
+  $("pickTable").replaceChildren(head, body);
+}
+
 function update() {
   const res = compute();
   trainerCombo.set(PICKABLE_TRAINERS.map((t) => ({ value: t.id, label: trainerName(t) })).sort(byLabel), state.trainerId);
   renderPickers(res);
   renderWins(res);
   renderResults(res);
+  renderPick(res);
 }
 
 // ── events ──
@@ -279,10 +349,44 @@ for (const r of document.querySelectorAll('input[name="wins"]')) r.addEventListe
   state.wins = Array.from({ length: n }, (_, k) => state.wins[k] ?? { move: null, loser: null });
   update();
 });
-$("resetBtn").addEventListener("click", () => {
+$("resetBtn").addEventListener("click", () => {   // clears the opponent; your team stays
   state = blank();
   document.querySelector('input[name="wins"][value="0"]').checked = true;
   update();
 });
 
-update();
+$("teamText").addEventListener("input", () => { $("savedTeams").value = ""; useTeamText($("teamText").value); });
+$("saveTeam").addEventListener("click", () => {
+  const name = $("teamName").value.trim();
+  if (!name) { $("teamMsg").textContent = "Give the team a name to save it."; $("teamMsg").className = "note err"; return; }
+  const r = parseTeam($("teamText").value);
+  if (r.error) { $("teamMsg").textContent = r.error; $("teamMsg").className = "note err"; return; }
+  const m = loadSaved(); m[name] = $("teamText").value; storeSaved(m); refreshSaved(name);
+  $("teamMsg").textContent = `Saved "${name}": ${r.species.map(speciesName).join(" · ")}`;
+  $("teamMsg").className = "note ok";
+});
+$("savedTeams").addEventListener("change", () => {
+  const k = $("savedTeams").value;
+  const t = loadSaved()[k];
+  if (t == null) return;
+  $("teamText").value = t;
+  $("teamName").value = k;
+  useTeamText(t);
+});
+$("deleteTeam").addEventListener("click", () => {
+  const k = $("savedTeams").value;
+  if (!k) return;
+  const m = loadSaved(); delete m[k]; storeSaved(m); refreshSaved();
+  $("teamMsg").textContent = `Deleted "${k}".`;
+  $("teamMsg").className = "note";
+});
+
+refreshSaved();
+let lastText = "";
+try { lastText = localStorage.getItem(LAST) ?? ""; } catch { /* storage blocked */ }
+if (lastText) {
+  $("teamText").value = lastText;
+  const match = Object.entries(loadSaved()).find(([, v]) => v === lastText);
+  if (match) { $("savedTeams").value = match[0]; $("teamName").value = match[0]; }
+  useTeamText(lastText, { quiet: true });
+} else update();
